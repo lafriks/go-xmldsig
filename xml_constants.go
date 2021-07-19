@@ -97,13 +97,13 @@ func init() {
 }
 
 var signatureMethodIdentifiers = map[x509.PublicKeyAlgorithm]map[crypto.Hash]string{
-	x509.RSA: map[crypto.Hash]string{
+	x509.RSA: {
 		crypto.SHA1:   RSASHA1SignatureMethod,
 		crypto.SHA256: RSASHA256SignatureMethod,
 		crypto.SHA384: RSASHA384SignatureMethod,
 		crypto.SHA512: RSASHA512SignatureMethod,
 	},
-	x509.ECDSA: map[crypto.Hash]string{
+	x509.ECDSA: {
 		crypto.SHA1:   ECDSASHA1SignatureMethod,
 		crypto.SHA256: ECDSASHA256SignatureMethod,
 		crypto.SHA384: ECDSASHA384SignatureMethod,

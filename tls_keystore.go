@@ -3,13 +3,13 @@ package xmldsig
 import (
 	"crypto/rsa"
 	"crypto/tls"
-	"fmt"
+	"errors"
 )
 
 //Well-known errors
 var (
-	ErrNonRSAKey           = fmt.Errorf("Private key was not RSA")
-	ErrMissingCertificates = fmt.Errorf("No public certificates provided")
+	ErrNonRSAKey           = errors.New("private key was not RSA")
+	ErrMissingCertificates = errors.New("no public certificates provided")
 )
 
 //TLSCertKeyStore wraps the stdlib tls.Certificate to return its contained key
@@ -19,7 +19,6 @@ type TLSCertKeyStore tls.Certificate
 //GetKeyPair implements X509KeyStore using the underlying tls.Certificate
 func (d TLSCertKeyStore) GetKeyPair() (*rsa.PrivateKey, []byte, error) {
 	pk, ok := d.PrivateKey.(*rsa.PrivateKey)
-
 	if !ok {
 		return nil, nil, ErrNonRSAKey
 	}

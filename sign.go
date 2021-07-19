@@ -327,7 +327,7 @@ func (ctx *SigningContext) SignString(content string) ([]byte, error) {
 	if ln, err := hash.Write([]byte(content)); err != nil {
 		return nil, fmt.Errorf("error calculating hash: %v", err)
 	} else if ln < 1 {
-		return nil, fmt.Errorf("zero length hash")
+		return nil, errors.New("zero length hash")
 	}
 	digest := hash.Sum(nil)
 
