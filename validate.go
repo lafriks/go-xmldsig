@@ -214,56 +214,71 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Can
 }
 
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) (*etree.Element, error) {
-	idAttrEl := el.SelectAttr(ctx.IdAttribute)
-	idAttr := ""
-	if idAttrEl != nil {
-		idAttr = idAttrEl.Value
-	}
-
-	var ref *Reference
+	transformed := el.Copy()
 
 	// Find the first reference which references the top-level element
-	for _, _ref := range sig.SignedInfo.References {
-		if _ref.URI == "" || _ref.URI[1:] == idAttr {
-			ref = &_ref
+	for _, ref := range sig.SignedInfo.References {
+		// Perform all transformations listed in the 'SignedInfo'
+		// Basically, this means removing the 'SignedInfo'
+		transformed, canonicalizer, err := ctx.transform(el, sig, &ref)
+		if err != nil {
+			return nil, err
 		}
-	}
+		referencedEl := transformed
+		if ref.URI != "" {
+			var rawPath string
 
-	// Perform all transformations listed in the 'SignedInfo'
-	// Basically, this means removing the 'SignedInfo'
-	transformed, canonicalizer, err := ctx.transform(el, sig, ref)
-	if err != nil {
-		return nil, err
-	}
+			switch ref.URI[0] {
+			case '/':
+				rawPath = ref.URI
+			case '#':
+				rawPath = "//*[@" + ctx.IdAttribute + "='" + ref.URI[1:] + "']"
+			default:
+				return nil, errors.New("unsupported reference URI: " + ref.URI)
+			}
+			path, err := etree.CompilePath(rawPath)
+			if err != nil {
+				return nil, err
+			}
+			root := &etree.Element{
+				Tag:   "root",
+				Child: []etree.Token{transformed},
+			}
+			referencedEl = root.FindElementPath(path)
+			if referencedEl == nil {
+				return nil, errors.New("error implementing etree: " + rawPath)
+			}
+		}
 
-	digestAlgorithm := ref.DigestAlgo.Algorithm
+		digestAlgorithm := ref.DigestAlgo.Algorithm
 
-	// Digest the transformed XML and compare it to the 'DigestValue' from the 'SignedInfo'
-	digest, err := ctx.digest(transformed, digestAlgorithm, canonicalizer)
-	if err != nil {
-		return nil, err
-	}
+		// Digest the transformed XML and compare it to the 'DigestValue' from the 'SignedInfo'
+		digest, err := ctx.digest(referencedEl, digestAlgorithm, canonicalizer)
+		if err != nil {
+			return nil, err
+		}
 
-	decodedDigestValue, err := base64.StdEncoding.DecodeString(ref.DigestValue)
-	if err != nil {
-		return nil, err
-	}
+		decodedDigestValue, err := base64.StdEncoding.DecodeString(ref.DigestValue)
+		if err != nil {
+			return nil, err
+		}
 
-	if !bytes.Equal(digest, decodedDigestValue) || sig.SignatureValue == nil {
-		return nil, errors.New("signature could not be verified")
-	}
+		if !bytes.Equal(digest, decodedDigestValue) || sig.SignatureValue == nil {
+			return nil, errors.New("signature could not be verified for '" + ref.URI + "'")
+		}
 
-	// Decode the 'SignatureValue' so we can compare against it
-	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
-	if err != nil {
-		return nil, errors.New("could not decode signature")
-	}
+		// Decode the 'SignatureValue' so we can compare against it
+		decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
+		if err != nil {
+			return nil, errors.New("could not decode signature")
+		}
 
-	// Actually verify the 'SignedInfo' was signed by a trusted source
-	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
-	err = ctx.verifySignedInfo(sig, canonicalizer, signatureMethod, cert, decodedSignature)
-	if err != nil {
-		return nil, err
+		// Actually verify the 'SignedInfo' was signed by a trusted source
+		signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
+		err = ctx.verifySignedInfo(sig, canonicalizer, signatureMethod, cert, decodedSignature)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return transformed, nil
