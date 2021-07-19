@@ -1,4 +1,4 @@
-package dsig
+package xmldsig
 
 import (
 	"crypto"
@@ -11,7 +11,7 @@ import (
 	"fmt"
 
 	"github.com/beevik/etree"
-	"github.com/russellhaering/goxmldsig/etreeutils"
+	"github.com/lafriks/go-xmldsig/etreeutils"
 )
 
 type SigningContext struct {
@@ -96,7 +96,6 @@ func (ctx *SigningContext) constructSignedInfo(el *etree.Element, enveloped bool
 	} else {
 		reference.CreateAttr(URIAttr, "#"+dataId)
 	}
-
 
 	// /SignedInfo/Reference/Transforms
 	transforms := ctx.createNamespacedElement(reference, TransformsTag)

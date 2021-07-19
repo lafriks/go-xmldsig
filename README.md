@@ -1,16 +1,16 @@
-# goxmldsig
+# xmldsig
 
-[![Build Status](https://travis-ci.org/russellhaering/goxmldsig.svg?branch=master)](https://travis-ci.org/russellhaering/goxmldsig)
-[![GoDoc](https://godoc.org/github.com/russellhaering/goxmldsig?status.svg)](https://godoc.org/github.com/russellhaering/goxmldsig)
+[![Build Status](https://cloud.drone.io/api/badges/lafriks/go-xmldsig/status.svg?ref=refs/heads/main)](https://cloud.drone.io/lafriks/go-xmldsig)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/lafriks/go-xmldsig)](https://pkg.go.dev/github.com/lafriks/go-xmldsig)
 
 XML Digital Signatures implemented in pure Go.
 
 ## Installation
 
-Install `goxmldsig` using `go get`:
+Install `go-xmldsig` using `go get`:
 
-```
-$ go get github.com/russellhaering/goxmldsig
+```sh
+$ go get github.com/lafriks/go-xmldsig
 ```
 
 ## Usage
@@ -22,13 +22,13 @@ package main
 
 import (
     "github.com/beevik/etree"
-    "github.com/russellhaering/goxmldsig"
+    "github.com/lafriks/go-xmldsig"
 )
 
 func main() {
     // Generate a key and self-signed certificate for signing
-    randomKeyStore := dsig.RandomKeyStoreForTest()
-    ctx := dsig.NewDefaultSigningContext(randomKeyStore)
+    randomKeyStore := xmldsig.RandomKeyStoreForTest()
+    ctx := xmldsig.NewDefaultSigningContext(randomKeyStore)
     elementToSign := &etree.Element{
         Tag: "ExampleElement",
     }
@@ -60,7 +60,7 @@ func main() {
 // Validate an element against a root certificate
 func validate(root *x509.Certificate, el *etree.Element) {
     // Construct a signing context with one or more roots of trust.
-    ctx := dsig.NewDefaultValidationContext(&dsig.MemoryX509CertificateStore{
+    ctx := xmldsig.NewDefaultValidationContext(&xmldsig.MemoryX509CertificateStore{
         Roots: []*x509.Certificate{root},
     })
 

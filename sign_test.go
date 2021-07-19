@@ -1,4 +1,4 @@
-package dsig
+package xmldsig
 
 import (
 	"crypto"

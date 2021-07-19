@@ -1,4 +1,4 @@
-package dsig
+package xmldsig
 
 import (
 	"crypto/x509"
@@ -249,7 +249,6 @@ func TestValidateWithValid(t *testing.T) {
 	require.NotEmpty(t, el)
 }
 
-
 func TestValidateWithModified(t *testing.T) {
 	doc := etree.NewDocument()
 	err := doc.ReadFromBytes([]byte(modifiedToBeTodd))
@@ -267,7 +266,6 @@ func TestValidateWithModified(t *testing.T) {
 	_, err = vc.Validate(doc.Root())
 	require.Error(t, err)
 }
-
 
 func TestValidateWithModifiedAndSignatureEdited(t *testing.T) {
 	doc := etree.NewDocument()

@@ -1,4 +1,4 @@
-package types
+package xmldsig
 
 import (
 	"encoding/xml"
