@@ -13,8 +13,7 @@ type Canonicalizer interface {
 	Algorithm() AlgorithmID
 }
 
-type NullCanonicalizer struct {
-}
+type NullCanonicalizer struct{}
 
 func MakeNullCanonicalizer() Canonicalizer {
 	return &NullCanonicalizer{}
@@ -126,10 +125,9 @@ func (c *c14N10RecCanonicalizer) Canonicalize(el *etree.Element) ([]byte, error)
 
 func (c *c14N10RecCanonicalizer) Algorithm() AlgorithmID {
 	if c.comments {
-		return CanonicalXML10WithCommentsAlgorithmId
+		return CanonicalXML11WithCommentsAlgorithmId
 	}
 	return CanonicalXML10RecAlgorithmId
-
 }
 
 const nsSpace = "xmlns"
@@ -168,6 +166,17 @@ func canonicalPrep(el *etree.Element, seenSoFar map[string]struct{}, strip bool,
 		}
 	}
 	ne.Attr = ne.Attr[:n]
+
+	if !comments {
+		c := 0
+		for c < len(ne.Child) {
+			if _, ok := ne.Child[c].(*etree.Comment); ok {
+				ne.RemoveChildAt(c)
+			} else {
+				c++
+			}
+		}
+	}
 
 	if !comments {
 		c := 0
