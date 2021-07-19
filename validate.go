@@ -1,4 +1,4 @@
-package dsig
+package xmldsig
 
 import (
 	"bytes"
@@ -10,18 +10,16 @@ import (
 	"regexp"
 
 	"github.com/beevik/etree"
-	"github.com/russellhaering/goxmldsig/etreeutils"
-	"github.com/russellhaering/goxmldsig/types"
+	"github.com/lafriks/go-xmldsig/etreeutils"
 )
 
-var uriRegexp = regexp.MustCompile("^#[a-zA-Z_][\\w.-]*$")
-var whiteSpace = regexp.MustCompile("\\s+")
+var whiteSpace = regexp.MustCompile(`\\s+`)
 
 var (
 	// ErrMissingSignature indicates that no enveloped signature was found referencing
 	// the top level element passed for signature verification.
-	ErrMissingSignature = errors.New("Missing signature referencing the top-level element")
-	ErrInvalidSignature = errors.New("Invalid Signature")
+	ErrMissingSignature = errors.New("missing signature referencing the top-level element")
+	ErrInvalidSignature = errors.New("invalid Signature")
 )
 
 type ValidationContext struct {
@@ -35,21 +33,6 @@ func NewDefaultValidationContext(certificateStore X509CertificateStore) *Validat
 		CertificateStore: certificateStore,
 		IdAttribute:      DefaultIdAttr,
 	}
-}
-
-// TODO(russell_h): More flexible namespace support. This might barely work.
-func inNamespace(el *etree.Element, ns string) bool {
-	for _, attr := range el.Attr {
-		if attr.Value == ns {
-			if attr.Space == "" && attr.Key == "xmlns" {
-				return el.Space == ""
-			} else if attr.Space == "xmlns" {
-				return el.Space == attr.Key
-			}
-		}
-	}
-
-	return false
 }
 
 func childPath(space, tag string) string {
@@ -107,8 +90,9 @@ func removeElementAtPath(el *etree.Element, path []int) bool {
 // The functionality of transform is currently very limited and purpose-specific.
 func (ctx *ValidationContext) transform(
 	el *etree.Element,
-	sig *types.Signature,
-	ref *types.Reference) (*etree.Element, Canonicalizer, error) {
+	sig *Signature,
+	ref *Reference,
+) (*etree.Element, Canonicalizer, error) {
 	transforms := ref.Transforms.Transforms
 
 	// map the path to the passed signature relative to the passed root, in
@@ -127,7 +111,7 @@ func (ctx *ValidationContext) transform(
 		switch AlgorithmID(algo) {
 		case EnvelopedSignatureAltorithmId:
 			if !removeElementAtPath(el, signaturePath) {
-				return nil, nil, errors.New("Error applying canonicalization transform: Signature not found")
+				return nil, nil, errors.New("error applying canonicalization transform: Signature not found")
 			}
 
 		case CanonicalXML10ExclusiveAlgorithmId:
@@ -178,7 +162,7 @@ func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string
 
 	digestAlgorithm, ok := digestAlgorithmsByIdentifier[digestAlgorithmId]
 	if !ok {
-		return nil, errors.New("Unknown digest algorithm: " + digestAlgorithmId)
+		return nil, errors.New("unknown digest algorithm: " + digestAlgorithmId)
 	}
 
 	hash := digestAlgorithm.New()
@@ -190,7 +174,7 @@ func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string
 	return hash.Sum(nil), nil
 }
 
-func (ctx *ValidationContext) verifySignedInfo(sig *types.Signature, canonicalizer Canonicalizer, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
+func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Canonicalizer, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
 	signatureElement := sig.UnderlyingElement()
 
 	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
@@ -204,7 +188,7 @@ func (ctx *ValidationContext) verifySignedInfo(sig *types.Signature, canonicaliz
 	}
 
 	if signedInfo == nil {
-		return errors.New("Missing SignedInfo")
+		return errors.New("missing SignedInfo")
 	}
 
 	// Canonicalize the xml
@@ -228,7 +212,7 @@ func (ctx *ValidationContext) verifySignedInfo(sig *types.Signature, canonicaliz
 
 	pubKey, ok := cert.PublicKey.(*rsa.PublicKey)
 	if !ok {
-		return errors.New("Invalid public key")
+		return errors.New("invalid public key")
 	}
 
 	// Verify that the private key matching the public key from the cert was what was used to sign the 'SignedInfo' and produce the 'SignatureValue'
@@ -240,14 +224,14 @@ func (ctx *ValidationContext) verifySignedInfo(sig *types.Signature, canonicaliz
 	return nil
 }
 
-func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *types.Signature, cert *x509.Certificate) (*etree.Element, error) {
+func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) (*etree.Element, error) {
 	idAttrEl := el.SelectAttr(ctx.IdAttribute)
 	idAttr := ""
 	if idAttrEl != nil {
 		idAttr = idAttrEl.Value
 	}
 
-	var ref *types.Reference
+	var ref *Reference
 
 	// Find the first reference which references the top-level element
 	for _, _ref := range sig.SignedInfo.References {
@@ -277,7 +261,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *types.Si
 	}
 
 	if !bytes.Equal(digest, decodedDigestValue) {
-		return nil, errors.New("Signature could not be verified")
+		return nil, errors.New("signature could not be verified")
 	}
 	if sig.SignatureValue == nil {
 		return nil, errors.New("Signature could not be verified")
@@ -286,7 +270,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *types.Si
 	// Decode the 'SignatureValue' so we can compare against it
 	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
 	if err != nil {
-		return nil, errors.New("Could not decode signature")
+		return nil, errors.New("could not decode signature")
 	}
 
 	// Actually verify the 'SignedInfo' was signed by a trusted source
@@ -328,14 +312,14 @@ func validateShape(signatureEl *etree.Element) error {
 }
 
 // findSignature searches for a Signature element referencing the passed root element.
-func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signature, error) {
+func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, error) {
 	idAttrEl := root.SelectAttr(ctx.IdAttribute)
 	idAttr := ""
 	if idAttrEl != nil {
 		idAttr = idAttrEl.Value
 	}
 
-	var sig *types.Signature
+	var sig *Signature
 
 	// Traverse the tree looking for a Signature element
 	err := etreeutils.NSFindIterate(root, Namespace, SignatureTag, func(ctx etreeutils.NSContext, signatureEl *etree.Element) error {
@@ -399,11 +383,11 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signatu
 		}
 
 		if !found {
-			return errors.New("Missing SignedInfo")
+			return errors.New("missing SignedInfo")
 		}
 
 		// Unmarshal the signature into a structured Signature type
-		_sig := &types.Signature{}
+		_sig := &Signature{}
 		err = etreeutils.NSUnmarshalElement(ctx, signatureEl, _sig)
 		if err != nil {
 			return err
@@ -420,7 +404,6 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signatu
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +415,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signatu
 	return sig, nil
 }
 
-func (ctx *ValidationContext) verifyCertificate(sig *types.Signature) (*x509.Certificate, error) {
+func (ctx *ValidationContext) verifyCertificate(sig *Signature) (*x509.Certificate, error) {
 	now := ctx.Clock.Now()
 
 	roots, err := ctx.CertificateStore.Certificates()
@@ -451,7 +434,7 @@ func (ctx *ValidationContext) verifyCertificate(sig *types.Signature) (*x509.Cer
 		certData, err := base64.StdEncoding.DecodeString(
 			whiteSpace.ReplaceAllString(sig.KeyInfo.X509Data.X509Certificates[0].Data, ""))
 		if err != nil {
-			return nil, errors.New("Failed to parse certificate")
+			return nil, errors.New("failed to parse certificate")
 		}
 
 		cert, err = x509.ParseCertificate(certData)
@@ -463,17 +446,17 @@ func (ctx *ValidationContext) verifyCertificate(sig *types.Signature) (*x509.Cer
 		if len(roots) == 1 {
 			cert = roots[0]
 		} else {
-			return nil, errors.New("Missing x509 Element")
+			return nil, errors.New("missing x509 Element")
 		}
 	}
 
 	// Verify that the certificate is one we trust
 	if !contains(roots, cert) {
-		return nil, errors.New("Could not verify certificate against trusted certs")
+		return nil, errors.New("could not verify certificate against trusted certs")
 	}
 
 	if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
-		return nil, errors.New("Cert is not valid at this time")
+		return nil, errors.New("certificate is not valid at this time")
 	}
 
 	return cert, nil
