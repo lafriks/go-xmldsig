@@ -260,7 +260,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		return nil, err
 	}
 
-	if !bytes.Equal(digest, decodedDigestValue) {
+	if !bytes.Equal(digest, decodedDigestValue) || sig.SignatureValue == nil {
 		return nil, errors.New("signature could not be verified")
 	}
 	if sig.SignatureValue == nil {
