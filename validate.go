@@ -2,7 +2,6 @@ package xmldsig
 
 import (
 	"bytes"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -197,26 +196,12 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Can
 		return err
 	}
 
-	signatureAlgorithm, ok := signatureMethodsByIdentifier[signatureMethodId]
+	algo, ok := x509SignatureAlgorithmByIdentifier[signatureMethodId]
 	if !ok {
 		return errors.New("unknown signature method: " + signatureMethodId)
 	}
 
-	hash := signatureAlgorithm.New()
-	_, err = hash.Write(canonical)
-	if err != nil {
-		return err
-	}
-
-	hashed := hash.Sum(nil)
-
-	pubKey, ok := cert.PublicKey.(*rsa.PublicKey)
-	if !ok {
-		return errors.New("invalid public key")
-	}
-
-	// Verify that the private key matching the public key from the cert was what was used to sign the 'SignedInfo' and produce the 'SignatureValue'
-	err = rsa.VerifyPKCS1v15(pubKey, signatureAlgorithm, hashed[:], decodedSignature)
+	err = cert.CheckSignature(algo, canonical, decodedSignature)
 	if err != nil {
 		return err
 	}
