@@ -25,13 +25,14 @@ var (
 type ValidationContext struct {
 	CertificateStore X509CertificateStore
 	IdAttribute      string
-	Clock            *Clock
+	Clock            Clock
 }
 
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
 	return &ValidationContext{
 		CertificateStore: certificateStore,
 		IdAttribute:      DefaultIdAttr,
+		Clock:            &realClock{},
 	}
 }
 
