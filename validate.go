@@ -19,7 +19,7 @@ var (
 	// ErrMissingSignature indicates that no enveloped signature was found referencing
 	// the top level element passed for signature verification.
 	ErrMissingSignature = errors.New("missing signature referencing the top-level element")
-	ErrInvalidSignature = errors.New("invalid Signature")
+	ErrInvalidSignature = errors.New("invalid signature")
 )
 
 type ValidationContext struct {
@@ -132,7 +132,7 @@ func (ctx *ValidationContext) transform(
 			canonicalizer = MakeC14N10CommentCanonicalizer()
 
 		default:
-			return nil, nil, errors.New("Unknown Transform Algorithm: " + algo)
+			return nil, nil, errors.New("unknown transform algorithm: " + algo)
 		}
 	}
 
@@ -188,7 +188,7 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Can
 
 	signatureAlgorithm, ok := signatureMethodsByIdentifier[signatureMethodId]
 	if !ok {
-		return errors.New("Unknown signature method: " + signatureMethodId)
+		return errors.New("unknown signature method: " + signatureMethodId)
 	}
 
 	hash := signatureAlgorithm.New()
