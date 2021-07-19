@@ -16,3 +16,10 @@ type realClock struct{}
 
 // Now returns the real current local time.
 func (rc *realClock) Now() time.Time { return time.Now() }
+
+// fixedClock is an implementation of Clock that returns a fixed time.
+type fixedClock struct {
+	t time.Time
+}
+
+func (fc *fixedClock) Now() time.Time { return fc.t }
