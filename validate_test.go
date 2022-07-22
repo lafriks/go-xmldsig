@@ -158,6 +158,26 @@ func TestDigest(t *testing.T) {
 	require.Equal(t, "npTAl6kraksBlCRlunbyD6nICTcfsDaHjPXVxoDPrw0=", base64.StdEncoding.EncodeToString(digest))
 }
 
+func TestFindSignature(t *testing.T) {
+	doc := etree.NewDocument()
+	err := doc.ReadFromBytes([]byte(rawResponse))
+	require.NoError(t, err)
+
+	vc := NewDefaultValidationContext(nil)
+
+	el := doc.Root()
+
+	sig, err := vc.findSignature(el)
+	require.NoError(t, err)
+	require.NotNil(t, sig)
+
+	children := sig.UnderlyingElement().ChildElements()
+	require.True(t, len(children) == 3)
+	require.Equal(t, "SignedInfo", children[0].Tag)
+	require.Equal(t, "SignatureValue", children[1].Tag)
+	require.Equal(t, "KeyInfo", children[2].Tag)
+}
+
 func TestTransform(t *testing.T) {
 	doc := etree.NewDocument()
 	err := doc.ReadFromBytes([]byte(rawResponse))
