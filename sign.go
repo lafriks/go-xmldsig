@@ -272,7 +272,7 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 	sig.AddChild(signedInfo)
 
 	// Default NSContext for the SignedInfo element.
-	elNSCtx := etreeutils.DefaultNSContext
+	elNSCtx := etreeutils.NewDefaultNSContext()
 
 	if alg := ctx.Canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmId || alg == CanonicalXML11WithCommentsAlgorithmId {
 		// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
