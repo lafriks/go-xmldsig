@@ -53,8 +53,13 @@ func MakeC14N10ExclusiveWithCommentsCanonicalizerWithPrefixList(prefixList strin
 
 // Canonicalize transforms the input Element into a serialized XML document in canonical form.
 func (c *c14N10ExclusiveCanonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
-	err := etreeutils.TransformExcC14n(el, c.prefixList, c.comments)
+	ctx, err := etreeutils.NSBuildParentContext(el)
 	if err != nil {
+		return nil, err
+	}
+
+	el = el.Copy()
+	if err = etreeutils.TransformExcC14nWithContext(ctx, el, c.prefixList, c.comments); err != nil {
 		return nil, err
 	}
 

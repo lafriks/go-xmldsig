@@ -7,8 +7,13 @@ import (
 	"github.com/beevik/etree"
 )
 
-// TransformExcC14n transforms the passed element into xml-exc-c14n form.
+// TransformExcC14n transforms the passed element into xml-exc-c14n form with default context.
 func TransformExcC14n(el *etree.Element, inclusiveNamespacesPrefixList string, comments bool) error {
+	return TransformExcC14nWithContext(DefaultNSContext, el, inclusiveNamespacesPrefixList, comments)
+}
+
+// TransformExcC14nWithContext transforms the passed element into xml-exc-c14n form with specified root context.
+func TransformExcC14nWithContext(ctx NSContext, el *etree.Element, inclusiveNamespacesPrefixList string, comments bool) error {
 	prefixes := strings.Fields(inclusiveNamespacesPrefixList)
 	prefixSet := make(map[string]struct{}, len(prefixes))
 
@@ -16,7 +21,7 @@ func TransformExcC14n(el *etree.Element, inclusiveNamespacesPrefixList string, c
 		prefixSet[prefix] = struct{}{}
 	}
 
-	err := transformExcC14n(DefaultNSContext, DefaultNSContext, el, prefixSet, comments)
+	err := transformExcC14n(ctx, DefaultNSContext, el, prefixSet, comments)
 	if err != nil {
 		return err
 	}
@@ -31,7 +36,7 @@ func transformExcC14n(ctx, declared NSContext, el *etree.Element, inclusiveNames
 	}
 
 	visiblyUtilizedPrefixes := map[string]struct{}{
-		el.Space: struct{}{},
+		el.Space: {},
 	}
 
 	filteredAttrs := []etree.Attr{}
