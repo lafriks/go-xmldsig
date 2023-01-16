@@ -155,7 +155,7 @@ func canonicalPrep(el *etree.Element, seenSoFar map[string]struct{}, strip bool,
 	}
 
 	ne := el.Copy()
-	sort.Sort(etreeutils.SortedAttrs(ne.Attr))
+	sort.Sort(etreeutils.NewSortedAttrs(etreeutils.DefaultNSContext, ne.Attr))
 	n := 0
 	for _, attr := range ne.Attr {
 		if attr.Space != nsSpace {

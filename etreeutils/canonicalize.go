@@ -89,7 +89,7 @@ func transformExcC14n(ctx, declared NSContext, el *etree.Element, inclusiveNames
 		el.Attr = append(el.Attr, declared.declare(prefix, namespace))
 	}
 
-	sort.Sort(SortedAttrs(el.Attr))
+	sort.Sort(NewSortedAttrs(scope, el.Attr))
 
 	if !comments {
 		c := 0

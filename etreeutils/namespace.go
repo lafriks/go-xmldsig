@@ -2,9 +2,7 @@ package etreeutils
 
 import (
 	"errors"
-
 	"fmt"
-
 	"sort"
 
 	"github.com/beevik/etree"
@@ -213,7 +211,7 @@ func NSDetatch(ctx NSContext, el *etree.Element) (*etree.Element, error) {
 		}
 	}
 
-	sort.Sort(SortedAttrs(attrs))
+	sort.Sort(NewSortedAttrs(ctx, attrs))
 
 	el.Attr = attrs
 
@@ -243,7 +241,6 @@ func NSSelectOneCtx(ctx NSContext, el *etree.Element, namespace, tag string) (*e
 
 		return ErrTraversalHalted
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +303,6 @@ func NSFindOneCtx(ctx NSContext, el *etree.Element, namespace, tag string) (*etr
 		found = el
 		return ErrTraversalHalted
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +394,6 @@ func NSBuildParentContext(el *etree.Element) (NSContext, error) {
 	}
 
 	ctx, err := NSBuildParentContext(parent)
-
 	if err != nil {
 		return ctx, err
 	}
