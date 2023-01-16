@@ -369,8 +369,8 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 					return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
 				}
 
+				signatureEl.InsertChildAt(signedInfo.Index(), canonicalSignedInfo)
 				signatureEl.RemoveChild(signedInfo)
-				signatureEl.AddChild(canonicalSignedInfo)
 
 				found = true
 
