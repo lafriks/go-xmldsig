@@ -5,14 +5,9 @@ type: docker
 
 steps:
   - name: lint
-    image: golangci/golangci-lint:v1.41
+    image: golangci/golangci-lint:v1.50
     commands:
       - "golangci-lint run ./..."
-
-  - name: go-1.14
-    image: golang:1.14
-    commands:
-      - "go test -v ./..."
 
   - name: go-1.15
     image: golang:1.15
@@ -21,5 +16,20 @@ steps:
 
   - name: go-1.16
     image: golang:1.16
+    commands:
+      - "go test -v ./..."
+
+  - name: go-1.17
+    image: golang:1.17
+    commands:
+      - "go test -v ./..."
+
+  - name: go-1.18
+    image: golang:1.18
+    commands:
+      - "go test -v ./..."
+
+  - name: go-1.19
+    image: golang:1.19
     commands:
       - "go test -v ./..."

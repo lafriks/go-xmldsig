@@ -52,7 +52,7 @@ const (
 	ECDSASHA512SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512"
 )
 
-//Well-known signature algorithms
+// Well-known signature algorithms
 const (
 	// Supported canonicalization algorithms
 	CanonicalXML10ExclusiveAlgorithmId             AlgorithmID = "http://www.w3.org/2001/10/xml-exc-c14n#"
@@ -79,8 +79,10 @@ var digestAlgorithmIdentifiers = map[crypto.Hash]string{
 	crypto.SHA512: "http://www.w3.org/2001/04/xmlenc#sha512",
 }
 
-var digestAlgorithmsByIdentifier = map[string]crypto.Hash{}
-var signatureMethodByIdentifiers = map[string]signatureMethodInfo{}
+var (
+	digestAlgorithmsByIdentifier = map[string]crypto.Hash{}
+	signatureMethodByIdentifiers = map[string]signatureMethodInfo{}
+)
 
 func init() {
 	for hash, id := range digestAlgorithmIdentifiers {

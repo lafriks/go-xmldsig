@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/beevik/etree"
 	"github.com/lafriks/go-xmldsig/etreeutils"
+
+	"github.com/beevik/etree"
 )
 
 var whiteSpace = regexp.MustCompile(`\\s+`)

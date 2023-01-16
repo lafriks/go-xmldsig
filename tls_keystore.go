@@ -6,17 +6,17 @@ import (
 	"errors"
 )
 
-//Well-known errors
+// Well-known errors
 var (
 	ErrNonRSAKey           = errors.New("private key was not RSA")
 	ErrMissingCertificates = errors.New("no public certificates provided")
 )
 
-//TLSCertKeyStore wraps the stdlib tls.Certificate to return its contained key
-//and certs.
+// TLSCertKeyStore wraps the stdlib tls.Certificate to return its contained key
+// and certs.
 type TLSCertKeyStore tls.Certificate
 
-//GetKeyPair implements X509KeyStore using the underlying tls.Certificate
+// GetKeyPair implements X509KeyStore using the underlying tls.Certificate
 func (d TLSCertKeyStore) GetKeyPair() (*rsa.PrivateKey, []byte, error) {
 	pk, ok := d.PrivateKey.(*rsa.PrivateKey)
 	if !ok {
@@ -32,7 +32,7 @@ func (d TLSCertKeyStore) GetKeyPair() (*rsa.PrivateKey, []byte, error) {
 	return pk, crt, nil
 }
 
-//GetChain impliments X509ChainStore using the underlying tls.Certificate
+// GetChain impliments X509ChainStore using the underlying tls.Certificate
 func (d TLSCertKeyStore) GetChain() ([][]byte, error) {
 	return d.Certificate, nil
 }
