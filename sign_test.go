@@ -3,8 +3,10 @@ package xmldsig
 import (
 	"crypto"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/beevik/etree"
 	"github.com/stretchr/testify/require"
@@ -30,6 +32,7 @@ func testSignWithContext(t *testing.T, ctx *SigningContext, sigMethodID string, 
 	}
 	id := "_97e34c50-65ec-4132-8b39-02933960a96a"
 	authnRequest.CreateAttr("ID", id)
+	authnRequest.CreateAttr("xmlns:samlp", "urn:oasis:names:tc:SAML:2.0:protocol")
 	hash := digestAlgo.New()
 	canonicalized, err := ctx.Canonicalizer.Canonicalize(authnRequest)
 	require.NoError(t, err)
@@ -170,4 +173,101 @@ func TestSignWithECDSA(t *testing.T) {
 	require.NoError(t, err)
 
 	testSignWithContext(t, ctx, method, crypto.SHA512)
+}
+
+func TestSignRefs(t *testing.T) {
+	randomKeyStore := RandomKeyStoreForTest()
+	ctx := NewDefaultSigningContext(randomKeyStore)
+	ctx.IdAttribute = "u:Id"
+	ctx.Prefix = ""
+	ctx.Canonicalizer = MakeC14N10ExclusiveCanonicalizerWithPrefixList("") // MakeC14N11Canonicalizer()
+	ctx.SetSignatureMethod(RSASHA1SignatureMethod)
+
+	el := &etree.Element{
+		Space: "s",
+		Tag:   "Envelope",
+	}
+	el.CreateAttr("xmlns:s", "http://schemas.xmlsoap.org/soap/envelope/")
+	el.CreateAttr("xmlns:a", "http://www.w3.org/2005/08/addressing")
+	el.CreateAttr("xmlns:u", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd")
+
+	h := el.CreateElement("s:Header")
+	to := h.CreateElement("a:To")
+	to.CreateAttr("s:mustUnderstand", "1")
+	to.CreateAttr("u:Id", "_1")
+	to.SetText("https://example.com/Issue.svc")
+
+	sec := h.CreateElement("o:Security")
+	sec.CreateAttr("s:mustUnderstand", "1")
+	sec.CreateAttr("xmlns:o", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd")
+
+	ts := sec.CreateElement("u:Timestamp")
+	ts.CreateAttr("u:Id", "_0")
+	ts.CreateElement("u:Created").SetText("2018-01-01T00:00:00Z")
+	ts.CreateElement("u:Expires").SetText("2018-01-01T00:05:00Z")
+
+	bts := sec.CreateElement("o:BinarySecurityToken")
+	bts.CreateAttr("u:Id", "uuid-0ebd724a-eff9-41cd-849b-99e941cb3d80-1")
+	bts.CreateAttr("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3")
+	_, certData, err := randomKeyStore.GetKeyPair()
+	require.NoError(t, err)
+	bts.SetText(base64.StdEncoding.EncodeToString(certData))
+
+	ki := &etree.Element{
+		Space: ctx.Prefix,
+		Tag:   "KeyInfo",
+	}
+	ref := ki.CreateElement("o:SecurityTokenReference").CreateElement("o:Reference")
+	ref.CreateAttr("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3")
+	ref.CreateAttr("URI", "#uuid-0ebd724a-eff9-41cd-849b-99e941cb3d80-1")
+
+	ctx.KeyInfo = ki
+
+	sig, err := ctx.ConstructSignature(sec, []*etree.Element{to, ts}, false)
+	require.NoError(t, err)
+
+	sec.AddChild(sig)
+
+	valctx := NewTestValidationContext(nil, time.Now())
+	valctx.IdAttribute = "u:Id"
+	valctx.CertificateResolver = func(sig *etree.Element) (*x509.Certificate, error) {
+		ki := sig.SelectElement("KeyInfo")
+		if sig == nil {
+			return nil, nil
+		}
+		str := ki.SelectElement("SecurityTokenReference")
+		if str == nil {
+			return nil, nil
+		}
+		ref := str.SelectElement("Reference")
+		if ref == nil {
+			return nil, nil
+		}
+		if ref.SelectAttrValue("ValueType", "") != "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" {
+			return nil, nil
+		}
+		id := ref.SelectAttrValue("URI", "")
+		if id == "" {
+			return nil, nil
+		}
+		if id[0] == '#' {
+			id = id[1:]
+		}
+		root := sig
+		for root.Parent() != nil {
+			root = root.Parent()
+		}
+		bts := root.FindElement("//*[@u:Id='" + id + "']")
+		if bts == nil {
+			return nil, nil
+		}
+		data, err := base64.StdEncoding.DecodeString(bts.Text())
+		if err != nil {
+			return nil, err
+		}
+		return x509.ParseCertificate(data)
+	}
+
+	err = valctx.ValidateInsecure(el)
+	require.NoError(t, err)
 }

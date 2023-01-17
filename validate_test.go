@@ -172,13 +172,12 @@ func TestTransform(t *testing.T) {
 
 	ref := &sig.SignedInfo.References[0]
 
-	transformed, canonicalizer, err := vc.transform(el, sig, ref)
+	canonicalizer, err := vc.transform(el, sig, ref)
 	require.NoError(t, err)
-	require.NotEmpty(t, transformed)
 	require.IsType(t, &c14N10ExclusiveCanonicalizer{}, canonicalizer)
 
 	doc = etree.NewDocument()
-	doc.SetRoot(transformed)
+	doc.SetRoot(el)
 
 	str, err := doc.WriteToString()
 	require.NoError(t, err)
@@ -233,9 +232,8 @@ func testValidateDoc(t *testing.T, doc *etree.Document, certPEM string) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	el, err := vc.Validate(doc.Root())
+	err = vc.Validate(doc.Root())
 	require.NoError(t, err)
-	require.NotEmpty(t, el)
 }
 
 const (
@@ -304,9 +302,8 @@ func TestValidateWithValid(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	el, err := vc.Validate(doc.Root())
+	err = vc.Validate(doc.Root())
 	require.NoError(t, err)
-	require.NotEmpty(t, el)
 }
 
 func TestValidateWithModified(t *testing.T) {
@@ -323,7 +320,7 @@ func TestValidateWithModified(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	_, err = vc.Validate(doc.Root())
+	err = vc.Validate(doc.Root())
 	require.Error(t, err)
 }
 
@@ -341,7 +338,7 @@ func TestValidateWithModifiedAndSignatureEdited(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	_, err = vc.Validate(doc.Root())
+	err = vc.Validate(doc.Root())
 	require.Error(t, err)
 }
 

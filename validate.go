@@ -22,10 +22,13 @@ var (
 	ErrInvalidSignature = errors.New("invalid signature")
 )
 
+type KeyInfoCertificateResolver func(sig *etree.Element) (*x509.Certificate, error)
+
 type ValidationContext struct {
-	CertificateStore X509CertificateStore
-	IdAttribute      string
-	Clock            Clock
+	CertificateStore    X509CertificateStore
+	IdAttribute         string
+	Clock               Clock
+	CertificateResolver KeyInfoCertificateResolver
 }
 
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
@@ -93,16 +96,13 @@ func (ctx *ValidationContext) transform(
 	el *etree.Element,
 	sig *Signature,
 	ref *Reference,
-) (*etree.Element, Canonicalizer, error) {
+) (Canonicalizer, error) {
 	transforms := ref.Transforms.Transforms
 
 	// map the path to the passed signature relative to the passed root, in
 	// order to enable removal of the signature by an enveloped signature
 	// transform
 	signaturePath := mapPathToElement(el, sig.UnderlyingElement())
-
-	// make a copy of the passed root
-	el = el.Copy()
 
 	var canonicalizer Canonicalizer
 
@@ -112,7 +112,7 @@ func (ctx *ValidationContext) transform(
 		switch AlgorithmID(algo) {
 		case EnvelopedSignatureAltorithmId:
 			if !removeElementAtPath(el, signaturePath) {
-				return nil, nil, errors.New("error applying canonicalization transform: Signature not found")
+				return nil, errors.New("error applying canonicalization transform: Signature not found")
 			}
 
 		case CanonicalXML10ExclusiveAlgorithmId:
@@ -144,7 +144,7 @@ func (ctx *ValidationContext) transform(
 			canonicalizer = MakeC14N10WithCommentsCanonicalizer()
 
 		default:
-			return nil, nil, errors.New("unknown transform algorithm: " + algo)
+			return nil, errors.New("unknown transform algorithm: " + algo)
 		}
 	}
 
@@ -152,11 +152,11 @@ func (ctx *ValidationContext) transform(
 		canonicalizer = MakeNullCanonicalizer()
 	}
 
-	return el, canonicalizer, nil
+	return canonicalizer, nil
 }
 
 func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string, canonicalizer Canonicalizer) ([]byte, error) {
-	data, err := canonicalizer.Canonicalize(el)
+	canonical, err := canonicalizer.Canonicalize(el)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string
 	}
 
 	hash := digestAlgorithm.New()
-	_, err = hash.Write(data)
+	_, err = hash.Write(canonical)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string
 	return hash.Sum(nil), nil
 }
 
-func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Canonicalizer, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
+func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
 	signatureElement := sig.UnderlyingElement()
 
 	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
@@ -211,19 +211,12 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, canonicalizer Can
 	return nil
 }
 
-func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) (*etree.Element, error) {
-	transformed := el.Copy()
-
+func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) error {
 	// Find the first reference which references the top-level element
 	for _, ref := range sig.SignedInfo.References {
-		// Perform all transformations listed in the 'SignedInfo'
-		// Basically, this means removing the 'SignedInfo'
-		transformed, canonicalizer, err := ctx.transform(el, sig, &ref)
-		if err != nil {
-			return nil, err
-		}
-		referencedEl := transformed
-		if ref.URI != "" {
+		referencedEl := el
+		if ref.URI != "" &&
+			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IdAttribute, "") != ref.URI[1:]) {
 			var rawPath string
 
 			switch ref.URI[0] {
@@ -232,54 +225,89 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 			case '#':
 				rawPath = "//*[@" + ctx.IdAttribute + "='" + ref.URI[1:] + "']"
 			default:
-				return nil, errors.New("unsupported reference URI: " + ref.URI)
+				return errors.New("unsupported reference URI: " + ref.URI)
 			}
 			path, err := etree.CompilePath(rawPath)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			root := &etree.Element{
-				Tag:   "root",
-				Child: []etree.Token{transformed},
-			}
-			referencedEl = root.FindElementPath(path)
+			referencedEl = el.FindElementPath(path)
 			if referencedEl == nil {
-				return nil, errors.New("error implementing etree: " + rawPath)
+				return errors.New("error implementing etree: " + rawPath)
+			}
+		}
+
+		// Perform all transformations listed in the 'SignedInfo'
+		// Basically, this means removing the 'SignedInfo'
+		canonicalizer, err := ctx.transform(referencedEl, sig, &ref)
+		if err != nil {
+			return err
+		}
+
+		transformedEl := referencedEl
+
+		if alg := canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmId || alg == CanonicalXML11WithCommentsAlgorithmId {
+			// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
+			// of the element must declare all namespaces that are in scope at it's final
+			// enveloped location in the document. In order to do that, we're going to construct
+			// a series of cascading NSContexts to capture namespace declarations:
+
+			// First get the context surrounding the element we are signing.
+			rootNSCtx, err := etreeutils.NSBuildParentContext(referencedEl)
+			if err != nil {
+				return err
+			}
+
+			// Then capture any declarations on the element itself.
+			digestNSCtx, err := rootNSCtx.SubContext(referencedEl)
+			if err != nil {
+				return err
+			}
+
+			// Finally detatch the element in order to capture all of the namespace
+			// declarations in the scope we've constructed.
+			transformedEl, err = etreeutils.NSDetatch(digestNSCtx, referencedEl)
+			if err != nil {
+				return err
 			}
 		}
 
 		digestAlgorithm := ref.DigestAlgo.Algorithm
 
 		// Digest the transformed XML and compare it to the 'DigestValue' from the 'SignedInfo'
-		digest, err := ctx.digest(referencedEl, digestAlgorithm, canonicalizer)
+		digest, err := ctx.digest(transformedEl, digestAlgorithm, canonicalizer)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		decodedDigestValue, err := base64.StdEncoding.DecodeString(ref.DigestValue)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		if !bytes.Equal(digest, decodedDigestValue) || sig.SignatureValue == nil {
-			return nil, errors.New("signature could not be verified for '" + ref.URI + "'")
-		}
-
-		// Decode the 'SignatureValue' so we can compare against it
-		decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
-		if err != nil {
-			return nil, errors.New("could not decode signature")
-		}
-
-		// Actually verify the 'SignedInfo' was signed by a trusted source
-		signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
-		err = ctx.verifySignedInfo(sig, canonicalizer, signatureMethod, cert, decodedSignature)
-		if err != nil {
-			return nil, err
+		if !bytes.Equal(digest, decodedDigestValue) {
+			return errors.New("digest is not valid for '" + ref.URI + "'")
 		}
 	}
 
-	return transformed, nil
+	if sig.SignatureValue == nil {
+		return errors.New("missing signature value")
+	}
+
+	// Decode the 'SignatureValue' so we can compare against it
+	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
+	if err != nil {
+		return fmt.Errorf("could not decode signature: %w", err)
+	}
+
+	// Actually verify the 'SignedInfo' was signed by a trusted source
+	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
+	err = ctx.verifySignedInfo(sig, signatureMethod, cert, decodedSignature)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func contains(roots []*x509.Certificate, cert *x509.Certificate) bool {
@@ -319,6 +347,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	}
 
 	var sig *Signature
+	var lsig *Signature
 
 	// Traverse the tree looking for a Signature element
 	err := etreeutils.NSFindIterate(root, Namespace, SignatureTag, func(ctx etreeutils.NSContext, signatureEl *etree.Element) error {
@@ -329,12 +358,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		found := false
 		err = etreeutils.NSFindChildrenIterateCtx(ctx, signatureEl, Namespace, SignedInfoTag,
 			func(ctx etreeutils.NSContext, signedInfo *etree.Element) error {
-				detachedSignedInfo, err := etreeutils.NSDetatch(ctx, signedInfo)
-				if err != nil {
-					return err
-				}
-
-				c14NMethod, err := etreeutils.NSFindOneChildCtx(ctx, detachedSignedInfo, Namespace, CanonicalizationMethodTag)
+				c14NMethod, err := etreeutils.NSFindOneChildCtx(ctx, signedInfo, Namespace, CanonicalizationMethodTag)
 				if err != nil {
 					return err
 				}
@@ -349,7 +373,8 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 
 				switch alg := AlgorithmID(c14NAlgorithm); alg {
 				case CanonicalXML10ExclusiveAlgorithmId, CanonicalXML10ExclusiveWithCommentsAlgorithmId:
-					err := etreeutils.TransformExcC14n(detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmId)
+					detachedSignedInfo := signedInfo.Copy()
+					err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmId)
 					if err != nil {
 						return err
 					}
@@ -360,11 +385,15 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 					// removing of elements below.
 					canonicalSignedInfo = detachedSignedInfo
 
-				case CanonicalXML11AlgorithmId, CanonicalXML10RecAlgorithmId:
-					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, map[string]struct{}{}, true, false)
+				case CanonicalXML11AlgorithmId, CanonicalXML11WithCommentsAlgorithmId:
+					detachedSignedInfo, err := etreeutils.NSDetatch(ctx, signedInfo)
+					if err != nil {
+						return err
+					}
+					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, map[string]struct{}{}, true, alg == CanonicalXML11WithCommentsAlgorithmId)
 
-				case CanonicalXML11WithCommentsAlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
-					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, map[string]struct{}{}, true, true)
+				case CanonicalXML10RecAlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
+					canonicalSignedInfo = canonicalPrep(signedInfo, map[string]struct{}{}, true, alg == CanonicalXML10WithCommentsAlgorithmId)
 
 				default:
 					return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
@@ -392,6 +421,8 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 			return err
 		}
 
+		lsig = _sig
+
 		// Traverse references in the signature to determine whether it has at least
 		// one reference to the top level element. If so, conclude the search.
 		for _, ref := range _sig.SignedInfo.References {
@@ -407,6 +438,12 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		return nil, err
 	}
 
+	if idAttr == "" && sig == nil {
+		// If no signature references the top level element, use the last signature
+		// as it could be partially signed document.
+		sig = lsig
+	}
+
 	if sig == nil {
 		return nil, ErrMissingSignature
 	}
@@ -414,39 +451,47 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	return sig, nil
 }
 
-func (ctx *ValidationContext) verifyCertificate(sig *Signature, verify bool) (*x509.Certificate, error) {
+func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bool) (*x509.Certificate, error) {
 	now := ctx.Clock.Now()
 
-	roots, err := ctx.CertificateStore.Certificates()
-	if err != nil {
-		return nil, err
+	var err error
+	roots := make([]*x509.Certificate, 0)
+
+	if ctx.CertificateStore != nil {
+		roots, err = ctx.CertificateStore.Certificates()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var cert *x509.Certificate
 
 	if sig.KeyInfo != nil {
 		// If the Signature includes KeyInfo, extract the certificate from there
-		if len(sig.KeyInfo.X509Data.X509Certificates) == 0 || sig.KeyInfo.X509Data.X509Certificates[0].Data == "" {
-			return nil, errors.New("missing X509Certificate within KeyInfo")
-		}
+		if len(sig.KeyInfo.X509Data.X509Certificates) != 0 && sig.KeyInfo.X509Data.X509Certificates[0].Data != "" {
+			certData, err := base64.StdEncoding.DecodeString(
+				whiteSpace.ReplaceAllString(sig.KeyInfo.X509Data.X509Certificates[0].Data, ""))
+			if err != nil {
+				return nil, errors.New("failed to parse certificate")
+			}
 
-		certData, err := base64.StdEncoding.DecodeString(
-			whiteSpace.ReplaceAllString(sig.KeyInfo.X509Data.X509Certificates[0].Data, ""))
-		if err != nil {
-			return nil, errors.New("failed to parse certificate")
+			cert, err = x509.ParseCertificate(certData)
+			if err != nil {
+				return nil, err
+			}
+		} else if ctx.CertificateResolver != nil {
+			cert, err = ctx.CertificateResolver(sig.UnderlyingElement())
+			if err != nil {
+				return nil, err
+			}
 		}
-
-		cert, err = x509.ParseCertificate(certData)
-		if err != nil {
-			return nil, err
-		}
-	} else {
+	} else if len(roots) == 1 {
 		// If the Signature doesn't have KeyInfo, Use the root certificate if there is only one
-		if len(roots) == 1 {
-			cert = roots[0]
-		} else {
-			return nil, errors.New("missing x509 Element")
-		}
+		cert = roots[0]
+	}
+
+	if cert == nil {
+		return nil, errors.New("missing x509 Element")
 	}
 
 	// Verify that the certificate is one we trust
@@ -464,10 +509,8 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, verify bool) (*x
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		if !contains(roots, cert) {
-			return nil, errors.New("could not verify certificate against trusted certs")
-		}
+	} else if check && !contains(roots, cert) {
+		return nil, errors.New("could not verify certificate against trusted certs")
 	}
 
 	if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
@@ -479,36 +522,56 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, verify bool) (*x
 
 // Validate verifies that the passed element contains a valid enveloped signature
 // matching a currently-valid certificate in the context's CertificateStore.
-func (ctx *ValidationContext) Validate(el *etree.Element) (*etree.Element, error) {
+func (ctx *ValidationContext) Validate(el *etree.Element) error {
 	// Make a copy of the element to avoid mutating the one we were passed.
 	el = el.Copy()
 
 	sig, err := ctx.findSignature(el)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	cert, err := ctx.verifyCertificate(sig, false)
+	cert, err := ctx.verifyCertificate(sig, true, false)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	return ctx.validateSignature(el, sig, cert)
 }
 
 // ValidateWithRootTrust does the same as Verify except it actually verifies the root CA is trusted as well
-func (ctx *ValidationContext) ValidateWithRootTrust(el *etree.Element) (*etree.Element, error) {
+func (ctx *ValidationContext) ValidateWithRootTrust(el *etree.Element) error {
 	// Make a copy of the element to avoid mutating the one we were passed.
 	el = el.Copy()
 
 	sig, err := ctx.findSignature(el)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	cert, err := ctx.verifyCertificate(sig, true)
+	cert, err := ctx.verifyCertificate(sig, true, true)
 	if err != nil {
-		return nil, err
+		return err
 	}
+
+	return ctx.validateSignature(el, sig, cert)
+}
+
+// ValidateInsecure verifies that the passed element contains a valid enveloped signature
+// without checking if certificate is the context's CertificateStore.
+func (ctx *ValidationContext) ValidateInsecure(el *etree.Element) error {
+	// Make a copy of the element to avoid mutating the one we were passed.
+	el = el.Copy()
+
+	sig, err := ctx.findSignature(el)
+	if err != nil {
+		return err
+	}
+
+	cert, err := ctx.verifyCertificate(sig, false, false)
+	if err != nil {
+		return err
+	}
+
 	return ctx.validateSignature(el, sig, cert)
 }
