@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lafriks/go-xmldsig/etreeutils"
+	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
 	"github.com/beevik/etree"
 	"github.com/stretchr/testify/require"
@@ -232,8 +232,9 @@ func testValidateDoc(t *testing.T, doc *etree.Document, certPEM string) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	err = vc.Validate(doc.Root())
+	validated, err := vc.Validate(doc.Root())
 	require.NoError(t, err)
+	require.Len(t, validated, 1)
 }
 
 const (
@@ -302,8 +303,9 @@ func TestValidateWithValid(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	err = vc.Validate(doc.Root())
+	validated, err := vc.Validate(doc.Root())
 	require.NoError(t, err)
+	require.Len(t, validated, 1)
 }
 
 func TestValidateWithModified(t *testing.T) {
@@ -320,7 +322,7 @@ func TestValidateWithModified(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	err = vc.Validate(doc.Root())
+	_, err = vc.Validate(doc.Root())
 	require.Error(t, err)
 }
 
@@ -338,7 +340,7 @@ func TestValidateWithModifiedAndSignatureEdited(t *testing.T) {
 	}
 	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
 
-	err = vc.Validate(doc.Root())
+	_, err = vc.Validate(doc.Root())
 	require.Error(t, err)
 }
 

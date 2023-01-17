@@ -1,4 +1,4 @@
-module github.com/lafriks/go-xmldsig
+module github.com/lafriks/go-xmldsig/v2
 
 go 1.15
 

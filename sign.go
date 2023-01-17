@@ -12,7 +12,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lafriks/go-xmldsig/etreeutils"
+	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
 	"github.com/beevik/etree"
 )

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/lafriks/go-xmldsig/etreeutils"
+	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
 	"github.com/beevik/etree"
 )
@@ -211,7 +211,8 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId
 	return nil
 }
 
-func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) error {
+func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {
+	validated := make([]*etree.Element, 0, len(sig.SignedInfo.References))
 	// Find the first reference which references the top-level element
 	for _, ref := range sig.SignedInfo.References {
 		referencedEl := el
@@ -225,15 +226,15 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 			case '#':
 				rawPath = "//*[@" + ctx.IdAttribute + "='" + ref.URI[1:] + "']"
 			default:
-				return errors.New("unsupported reference URI: " + ref.URI)
+				return nil, errors.New("unsupported reference URI: " + ref.URI)
 			}
 			path, err := etree.CompilePath(rawPath)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			referencedEl = el.FindElementPath(path)
 			if referencedEl == nil {
-				return errors.New("error implementing etree: " + rawPath)
+				return nil, errors.New("error implementing etree: " + rawPath)
 			}
 		}
 
@@ -241,7 +242,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		// Basically, this means removing the 'SignedInfo'
 		canonicalizer, err := ctx.transform(referencedEl, sig, &ref)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		transformedEl := referencedEl
@@ -255,20 +256,20 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 			// First get the context surrounding the element we are signing.
 			rootNSCtx, err := etreeutils.NSBuildParentContext(referencedEl)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// Then capture any declarations on the element itself.
 			digestNSCtx, err := rootNSCtx.SubContext(referencedEl)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// Finally detatch the element in order to capture all of the namespace
 			// declarations in the scope we've constructed.
 			transformedEl, err = etreeutils.NSDetatch(digestNSCtx, referencedEl)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
@@ -277,37 +278,39 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		// Digest the transformed XML and compare it to the 'DigestValue' from the 'SignedInfo'
 		digest, err := ctx.digest(transformedEl, digestAlgorithm, canonicalizer)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		decodedDigestValue, err := base64.StdEncoding.DecodeString(ref.DigestValue)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if !bytes.Equal(digest, decodedDigestValue) {
-			return errors.New("digest is not valid for '" + ref.URI + "'")
+			return nil, fmt.Errorf("digest is not valid for '%s'", ref.URI)
 		}
+
+		validated = append(validated, referencedEl)
 	}
 
 	if sig.SignatureValue == nil {
-		return errors.New("missing signature value")
+		return nil, errors.New("missing signature value")
 	}
 
 	// Decode the 'SignatureValue' so we can compare against it
 	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
 	if err != nil {
-		return fmt.Errorf("could not decode signature: %w", err)
+		return nil, fmt.Errorf("could not decode signature: %w", err)
 	}
 
 	// Actually verify the 'SignedInfo' was signed by a trusted source
 	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
 	err = ctx.verifySignedInfo(sig, signatureMethod, cert, decodedSignature)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return validated, nil
 }
 
 func contains(roots []*x509.Certificate, cert *x509.Certificate) bool {
@@ -522,36 +525,36 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 
 // Validate verifies that the passed element contains a valid enveloped signature
 // matching a currently-valid certificate in the context's CertificateStore.
-func (ctx *ValidationContext) Validate(el *etree.Element) error {
+func (ctx *ValidationContext) Validate(el *etree.Element) ([]*etree.Element, error) {
 	// Make a copy of the element to avoid mutating the one we were passed.
 	el = el.Copy()
 
 	sig, err := ctx.findSignature(el)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cert, err := ctx.verifyCertificate(sig, true, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return ctx.validateSignature(el, sig, cert)
 }
 
 // ValidateWithRootTrust does the same as Verify except it actually verifies the root CA is trusted as well
-func (ctx *ValidationContext) ValidateWithRootTrust(el *etree.Element) error {
+func (ctx *ValidationContext) ValidateWithRootTrust(el *etree.Element) ([]*etree.Element, error) {
 	// Make a copy of the element to avoid mutating the one we were passed.
 	el = el.Copy()
 
 	sig, err := ctx.findSignature(el)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cert, err := ctx.verifyCertificate(sig, true, true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return ctx.validateSignature(el, sig, cert)
@@ -559,18 +562,18 @@ func (ctx *ValidationContext) ValidateWithRootTrust(el *etree.Element) error {
 
 // ValidateInsecure verifies that the passed element contains a valid enveloped signature
 // without checking if certificate is the context's CertificateStore.
-func (ctx *ValidationContext) ValidateInsecure(el *etree.Element) error {
+func (ctx *ValidationContext) ValidateInsecure(el *etree.Element) ([]*etree.Element, error) {
 	// Make a copy of the element to avoid mutating the one we were passed.
 	el = el.Copy()
 
 	sig, err := ctx.findSignature(el)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cert, err := ctx.verifyCertificate(sig, false, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return ctx.validateSignature(el, sig, cert)

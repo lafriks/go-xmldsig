@@ -5,24 +5,28 @@
 
 XML Digital Signatures implemented in pure Go.
 
+Fork of [russellhaering/goxmldsig](https://github.com/russellhaering/goxmldsig)
+
 ## Installation
 
 Install `go-xmldsig` using `go get`:
 
 ```sh
-$ go get github.com/lafriks/go-xmldsig
+go get github.com/lafriks/go-xmldsig/v2
 ```
 
 ## Usage
 
 ### Signing
 
+It's possible to sign either whole XML document or only specific elements.
+
 ```go
 package main
 
 import (
     "github.com/beevik/etree"
-    "github.com/lafriks/go-xmldsig"
+    "github.com/lafriks/go-xmldsig/v2"
 )
 
 func main() {
@@ -35,7 +39,7 @@ func main() {
     elementToSign.CreateAttr("ID", "id1234")
 
     // Sign the element
-    signedElement, err := ctx.SignEnveloped(elementToSign)
+    signedElement, err := ctx.Sign(elementToSign)
     if err != nil {
         panic(err)
     }
@@ -72,7 +76,7 @@ func validate(root *x509.Certificate, el *etree.Element) {
     }
 
     doc := etree.NewDocument()
-    doc.SetRoot(validated)
+    doc.SetRoot(validated[0])
     str, err := doc.WriteToString()
     if err != nil {
         panic(err)

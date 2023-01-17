@@ -268,6 +268,7 @@ func TestSignRefs(t *testing.T) {
 		return x509.ParseCertificate(data)
 	}
 
-	err = valctx.ValidateInsecure(el)
+	validated, err := valctx.ValidateInsecure(el)
 	require.NoError(t, err)
+	require.Len(t, validated, 2)
 }
