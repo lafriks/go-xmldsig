@@ -105,35 +105,35 @@ func (c *c14N11Canonicalizer) Algorithm() AlgorithmID {
 	return CanonicalXML11AlgorithmId
 }
 
-type c14N10RecCanonicalizer struct {
+type c14N10Canonicalizer struct {
 	comments bool
 }
 
-// MakeC14N10RecCanonicalizer constructs an inclusive canonicalizer.
-func MakeC14N10RecCanonicalizer() Canonicalizer {
-	return &c14N10RecCanonicalizer{
+// MakeC14N10Canonicalizer constructs an inclusive canonicalizer.
+func MakeC14N10Canonicalizer() Canonicalizer {
+	return &c14N10Canonicalizer{
 		comments: false,
 	}
 }
 
 // MakeC14N10WithCommentsCanonicalizer constructs an inclusive canonicalizer.
 func MakeC14N10WithCommentsCanonicalizer() Canonicalizer {
-	return &c14N10RecCanonicalizer{
+	return &c14N10Canonicalizer{
 		comments: true,
 	}
 }
 
 // Canonicalize transforms the input Element into a serialized XML document in canonical form.
-func (c *c14N10RecCanonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
+func (c *c14N10Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
 	scope := make(map[string]struct{})
 	return canonicalSerialize(canonicalPrep(el, scope, true, c.comments))
 }
 
-func (c *c14N10RecCanonicalizer) Algorithm() AlgorithmID {
+func (c *c14N10Canonicalizer) Algorithm() AlgorithmID {
 	if c.comments {
-		return CanonicalXML11WithCommentsAlgorithmId
+		return CanonicalXML10WithCommentsAlgorithmId
 	}
-	return CanonicalXML10RecAlgorithmId
+	return CanonicalXML10AlgorithmId
 }
 
 const nsSpace = "xmlns"

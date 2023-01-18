@@ -61,7 +61,7 @@ const (
 	CanonicalXML11AlgorithmId             AlgorithmID = "http://www.w3.org/2006/12/xml-c14n11"
 	CanonicalXML11WithCommentsAlgorithmId AlgorithmID = "http://www.w3.org/2006/12/xml-c14n11#WithComments"
 
-	CanonicalXML10RecAlgorithmId          AlgorithmID = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+	CanonicalXML10AlgorithmId             AlgorithmID = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 	CanonicalXML10WithCommentsAlgorithmId AlgorithmID = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"
 
 	EnvelopedSignatureAltorithmId AlgorithmID = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"

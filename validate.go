@@ -137,8 +137,8 @@ func (ctx *ValidationContext) transform(
 		case CanonicalXML11WithCommentsAlgorithmId:
 			canonicalizer = MakeC14N11WithCommentsCanonicalizer()
 
-		case CanonicalXML10RecAlgorithmId:
-			canonicalizer = MakeC14N10RecCanonicalizer()
+		case CanonicalXML10AlgorithmId:
+			canonicalizer = MakeC14N10Canonicalizer()
 
 		case CanonicalXML10WithCommentsAlgorithmId:
 			canonicalizer = MakeC14N10WithCommentsCanonicalizer()
@@ -395,7 +395,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 					}
 					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, map[string]struct{}{}, true, alg == CanonicalXML11WithCommentsAlgorithmId)
 
-				case CanonicalXML10RecAlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
+				case CanonicalXML10AlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
 					canonicalSignedInfo = canonicalPrep(signedInfo, map[string]struct{}{}, true, alg == CanonicalXML10WithCommentsAlgorithmId)
 
 				default:
