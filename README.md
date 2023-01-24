@@ -17,6 +17,19 @@ go get github.com/lafriks/go-xmldsig/v2
 
 ## Usage
 
+Include the [`types.Signature`](https://pkg.go.dev/github.com/russellhaering/goxmldsig/types#Signature) struct from this package in your application messages.
+
+```go
+import (
+    sigtypes "github.com/russellhaering/goxmldsig/types"
+)
+
+type AppHdr struct {
+    ...
+    Signature *sigtypes.Signature
+}
+```
+
 ### Signing
 
 It's possible to sign either whole XML document or only specific elements.
