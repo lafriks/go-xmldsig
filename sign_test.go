@@ -180,7 +180,7 @@ func TestSignRefs(t *testing.T) {
 	ctx := NewDefaultSigningContext(randomKeyStore)
 	ctx.IdAttribute = "u:Id"
 	ctx.Prefix = ""
-	ctx.Canonicalizer = MakeC14N10ExclusiveCanonicalizerWithPrefixList("") // MakeC14N11Canonicalizer()
+	ctx.Canonicalizer = MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
 	ctx.SetSignatureMethod(RSASHA1SignatureMethod)
 
 	el := &etree.Element{
