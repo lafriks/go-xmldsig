@@ -125,8 +125,11 @@ func MakeC14N10WithCommentsCanonicalizer() Canonicalizer {
 
 // Canonicalize transforms the input Element into a serialized XML document in canonical form.
 func (c *c14N10Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
+	parentNamespaceAttributes, parentXmlAttributes := getParentNamespaceAndXmlAttributes(el)
+	elCopy := el.Copy()
+	enhanceNamespaceAttributes(elCopy, parentNamespaceAttributes, parentXmlAttributes)
 	scope := make(map[string]struct{})
-	return canonicalSerialize(canonicalPrep(el, scope, true, c.comments))
+	return canonicalSerialize(canonicalPrep(elCopy, scope, true, c.comments))
 }
 
 func (c *c14N10Canonicalizer) Algorithm() AlgorithmID {
@@ -216,4 +219,45 @@ func canonicalSerialize(el *etree.Element) ([]byte, error) {
 	}
 
 	return doc.WriteToBytes()
+}
+
+func getParentNamespaceAndXmlAttributes(el *etree.Element) (map[string]string, map[string]string) {
+	namespaceMap := make(map[string]string, 23)
+	xmlMap := make(map[string]string, 5)
+	parents := make([]*etree.Element, 0, 23)
+	n1 := el.Parent()
+	if n1 == nil {
+		return namespaceMap, xmlMap
+	}
+	parent := n1
+	for parent != nil {
+		parents = append(parents, parent)
+		parent = parent.Parent()
+	}
+	for i := len(parents) - 1; i > -1; i-- {
+		elementPos := parents[i]
+		for _, attr := range elementPos.Attr {
+			if attr.Space == "xmlns" && (attr.Key != "xml" || attr.Value != "http://www.w3.org/XML/1998/namespace") {
+				namespaceMap[attr.Key] = attr.Value
+			} else if attr.Space == "" && attr.Key == "xmlns" {
+				namespaceMap[attr.Key] = attr.Value
+			} else if attr.Space == "xml" {
+				xmlMap[attr.Key] = attr.Value
+			}
+		}
+	}
+	return namespaceMap, xmlMap
+}
+
+func enhanceNamespaceAttributes(el *etree.Element, parentNamespaces map[string]string, parentXmlAttributes map[string]string) {
+	for prefix, uri := range parentNamespaces {
+		if prefix == "xmlns" {
+			el.CreateAttr("xmlns", uri)
+		} else {
+			el.CreateAttr("xmlns:"+prefix, uri)
+		}
+	}
+	for attr, value := range parentXmlAttributes {
+		el.CreateAttr("xml:"+attr, value)
+	}
 }
