@@ -1,6 +1,7 @@
 package xmldsig
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/beevik/etree"
@@ -93,4 +94,32 @@ func TestExcC14nRedeclareDefaultNamespace(t *testing.T) {
 	expected := `<Foo xmlns="urn:foo"><Bar xmlns="uri:bar"></Bar></Foo>`
 	canonicalizer := MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
 	runCanonicalizationTest(t, canonicalizer, input, expected)
+}
+
+func TestC14N10RecCanonicalizerWithNamespaceInheritance(t *testing.T) {
+	input := `<RootElement xmlns="http://www.example.com/ns1" xmlns:ns2="http://www.example.com/ns2">
+		<ns2:ChildElement>
+			<ns2:GrandChildElement>Hello, World!</ns2:GrandChildElement>
+		</ns2:ChildElement>
+	</RootElement>`
+
+	expected := `<ns2:ChildElement xmlns="http://www.example.com/ns1" xmlns:ns2="http://www.example.com/ns2">
+			<ns2:GrandChildElement>Hello, World!</ns2:GrandChildElement>
+		</ns2:ChildElement>`
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(input); err != nil {
+		t.Fatalf("Error parsing input XML: %v", err)
+	}
+
+	childElement := doc.FindElement(".//ns2:ChildElement")
+	if childElement == nil {
+		t.Fatal("Error: childElement not found")
+	}
+
+	canonicalizer := MakeC14N10RecCanonicalizer()
+	canonicalized, err := canonicalizer.Canonicalize(childElement)
+	require.NoError(t, err)
+	require.Equal(t, strings.TrimSpace(expected), strings.TrimSpace(string(canonicalized)))
+
 }
