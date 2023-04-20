@@ -96,6 +96,44 @@ func TestExcC14nRedeclareDefaultNamespace(t *testing.T) {
 	runCanonicalizationTest(t, canonicalizer, input, expected)
 }
 
+func TestC14N10RecCanonicalizer(t *testing.T) {
+	// From https://www.w3.org/TR/2001/REC-xml-c14n-20010315#Example-SETags
+	input := `<doc>
+   <e1   />
+   <e2   ></e2>
+   <e3   name = "elem3"   id="elem3"   />
+   <e4   name="elem4"   id="elem4"   ></e4>
+   <e5 a:attr="out" b:attr="sorted" attr2="all" attr="I'm"
+      xmlns:b="http://www.ietf.org"
+      xmlns:a="http://www.w3.org"
+      xmlns="http://example.org"/>
+   <e6 xmlns="" xmlns:a="http://www.w3.org">
+      <e7 xmlns="http://www.ietf.org">
+         <e8 xmlns="" xmlns:a="http://www.w3.org">
+            <e9 xmlns="" xmlns:a="http://www.ietf.org"/>
+         </e8>
+      </e7>
+   </e6>
+</doc>`
+	expected := `<doc>
+   <e1></e1>
+   <e2></e2>
+   <e3 id="elem3" name="elem3"></e3>
+   <e4 id="elem4" name="elem4"></e4>
+   <e5 xmlns="http://example.org" xmlns:a="http://www.w3.org" xmlns:b="http://www.ietf.org" attr="I'm" attr2="all" b:attr="sorted" a:attr="out"></e5>
+   <e6 xmlns:a="http://www.w3.org">
+      <e7 xmlns="http://www.ietf.org">
+         <e8 xmlns="">
+            <e9 xmlns:a="http://www.ietf.org"></e9>
+         </e8>
+      </e7>
+   </e6>
+</doc>`
+
+	canonicalizer := MakeC14N10Canonicalizer()
+	runCanonicalizationTest(t, canonicalizer, input, expected)
+}
+
 func TestC14N10RecCanonicalizerWithNamespaceInheritance(t *testing.T) {
 	input := `<RootElement xmlns="http://www.example.com/ns1" xmlns:ns2="http://www.example.com/ns2">
 		<ns2:ChildElement>
@@ -117,7 +155,7 @@ func TestC14N10RecCanonicalizerWithNamespaceInheritance(t *testing.T) {
 		t.Fatal("Error: childElement not found")
 	}
 
-	canonicalizer := MakeC14N10RecCanonicalizer()
+	canonicalizer := MakeC14N10Canonicalizer()
 	canonicalized, err := canonicalizer.Canonicalize(childElement)
 	require.NoError(t, err)
 	require.Equal(t, strings.TrimSpace(expected), strings.TrimSpace(string(canonicalized)))

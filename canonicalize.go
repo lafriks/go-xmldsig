@@ -25,8 +25,7 @@ func (c *NullCanonicalizer) Algorithm() AlgorithmID {
 }
 
 func (c *NullCanonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
-	scope := make(map[string]struct{})
-	return canonicalSerialize(canonicalPrep(el, scope, false, true))
+	return canonicalSerialize(canonicalPrep(el, false, true))
 }
 
 type c14N10ExclusiveCanonicalizer struct {
@@ -94,8 +93,7 @@ func MakeC14N11WithCommentsCanonicalizer() Canonicalizer {
 
 // Canonicalize transforms the input Element into a serialized XML document in canonical form.
 func (c *c14N11Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
-	scope := make(map[string]struct{})
-	return canonicalSerialize(canonicalPrep(el, scope, true, c.comments))
+	return canonicalSerialize(canonicalPrep(el, true, c.comments))
 }
 
 func (c *c14N11Canonicalizer) Algorithm() AlgorithmID {
@@ -128,8 +126,7 @@ func (c *c14N10Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
 	parentNamespaceAttributes, parentXmlAttributes := getParentNamespaceAndXmlAttributes(el)
 	elCopy := el.Copy()
 	enhanceNamespaceAttributes(elCopy, parentNamespaceAttributes, parentXmlAttributes)
-	scope := make(map[string]struct{})
-	return canonicalSerialize(canonicalPrep(elCopy, scope, true, c.comments))
+	return canonicalSerialize(canonicalPrep(elCopy, true, c.comments))
 }
 
 func (c *c14N10Canonicalizer) Algorithm() AlgorithmID {
@@ -152,26 +149,43 @@ const nsSpace = "xmlns"
 //
 // TODO(russell_h): This is very similar to excCanonicalPrep - perhaps they should
 // be unified into one parameterized function?
-func canonicalPrep(el *etree.Element, seenSoFar map[string]struct{}, strip bool, comments bool) *etree.Element {
-	_seenSoFar := make(map[string]struct{})
+func canonicalPrep(el *etree.Element, strip bool, comments bool) *etree.Element {
+	return canonicalPrepInner(el, etreeutils.NewDefaultNSContext(), make(map[string]string), strip, comments)
+}
+
+func canonicalPrepInner(el *etree.Element, parentCtx etreeutils.NSContext, seenSoFar map[string]string, strip bool, comments bool) *etree.Element {
+	_seenSoFar := make(map[string]string)
 	for k, v := range seenSoFar {
 		_seenSoFar[k] = v
 	}
 
 	ne := el.Copy()
-	sort.Sort(etreeutils.NewSortedAttrs(etreeutils.NewDefaultNSContext(), ne.Attr))
+	ctx, err := parentCtx.SubContext(ne)
+	if err != nil {
+		ctx = parentCtx
+	}
+	sort.Sort(etreeutils.NewSortedAttrs(ctx, ne.Attr))
 	n := 0
 	for _, attr := range ne.Attr {
-		if attr.Space != nsSpace {
+		if attr.Space != nsSpace && !(attr.Space == "" && attr.Key == nsSpace) {
 			ne.Attr[n] = attr
 			n++
 			continue
 		}
-		key := attr.Space + ":" + attr.Key
-		if _, seen := _seenSoFar[key]; !seen {
-			ne.Attr[n] = attr
-			n++
-			_seenSoFar[key] = struct{}{}
+
+		if attr.Space == nsSpace {
+			key := attr.Space + ":" + attr.Key
+			if uri, seen := _seenSoFar[key]; !seen || attr.Value != uri {
+				ne.Attr[n] = attr
+				n++
+				_seenSoFar[key] = attr.Value
+			}
+		} else {
+			if uri, seen := _seenSoFar[nsSpace]; (!seen && attr.Value != "") || attr.Value != uri {
+				ne.Attr[n] = attr
+				n++
+				_seenSoFar[nsSpace] = attr.Value
+			}
 		}
 	}
 	ne.Attr = ne.Attr[:n]
@@ -187,21 +201,10 @@ func canonicalPrep(el *etree.Element, seenSoFar map[string]struct{}, strip bool,
 		}
 	}
 
-	if !comments {
-		c := 0
-		for c < len(ne.Child) {
-			if _, ok := ne.Child[c].(*etree.Comment); ok {
-				ne.RemoveChildAt(c)
-			} else {
-				c++
-			}
-		}
-	}
-
 	for i, token := range ne.Child {
 		childElement, ok := token.(*etree.Element)
 		if ok {
-			ne.Child[i] = canonicalPrep(childElement, _seenSoFar, strip, comments)
+			ne.Child[i] = canonicalPrepInner(childElement, ctx, _seenSoFar, strip, comments)
 		}
 	}
 

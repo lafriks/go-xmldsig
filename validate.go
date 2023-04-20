@@ -393,10 +393,10 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 					if err != nil {
 						return err
 					}
-					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, map[string]struct{}{}, true, alg == CanonicalXML11WithCommentsAlgorithmId)
+					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, true, alg == CanonicalXML11WithCommentsAlgorithmId)
 
 				case CanonicalXML10AlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
-					canonicalSignedInfo = canonicalPrep(signedInfo, map[string]struct{}{}, true, alg == CanonicalXML10WithCommentsAlgorithmId)
+					canonicalSignedInfo = canonicalPrep(signedInfo, true, alg == CanonicalXML10WithCommentsAlgorithmId)
 
 				default:
 					return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
