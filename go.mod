@@ -3,7 +3,7 @@ module github.com/lafriks/go-xmldsig/v2
 go 1.15
 
 require (
-	github.com/beevik/etree v1.1.0
+	github.com/beevik/etree v1.2.0
 	github.com/stretchr/testify v1.8.2
 )
 
