@@ -155,6 +155,7 @@ func (ctx *ValidationContext) transform(
 	return canonicalizer, nil
 }
 
+// deprecated
 func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string, canonicalizer Canonicalizer) ([]byte, error) {
 	canonical, err := canonicalizer.Canonicalize(el)
 	if err != nil {
@@ -173,6 +174,32 @@ func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string
 	}
 
 	return hash.Sum(nil), nil
+}
+
+func (ctx *ValidationContext) getCanonicalSignedInfo(sig *Signature) ([]byte, error) {
+	signatureElement := sig.UnderlyingElement()
+
+	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
+	if err != nil {
+		return nil, err
+	}
+
+	signedInfo, err := etreeutils.NSFindOneChildCtx(nsCtx, signatureElement, Namespace, SignedInfoTag)
+	if err != nil {
+		return nil, err
+	}
+
+	if signedInfo == nil {
+		return nil, errors.New("missing SignedInfo")
+	}
+
+	// Canonicalize the xml
+	canonical, err := canonicalSerialize(signedInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	return canonical, nil
 }
 
 func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
@@ -212,6 +239,23 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId
 }
 
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {
+	// Verify signature FIRST before processing references (security improvement)
+	if sig.SignatureValue == nil {
+		return nil, errors.New("missing signature value")
+	}
+
+	// Decode the 'SignatureValue' so we can compare against it
+	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode signature: %w", err)
+	}
+
+	// Actually verify the 'SignedInfo' was signed by a trusted source
+	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
+	if err = ctx.verifySignedInfo(sig, signatureMethod, cert, decodedSignature); err != nil {
+		return nil, err
+	}
+
 	validated := make([]*etree.Element, 0, len(sig.SignedInfo.References))
 	// Find the first reference which references the top-level element
 	for _, ref := range sig.SignedInfo.References {
@@ -291,23 +335,6 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		}
 
 		validated = append(validated, referencedEl)
-	}
-
-	if sig.SignatureValue == nil {
-		return nil, errors.New("missing signature value")
-	}
-
-	// Decode the 'SignatureValue' so we can compare against it
-	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
-	if err != nil {
-		return nil, fmt.Errorf("could not decode signature: %w", err)
-	}
-
-	// Actually verify the 'SignedInfo' was signed by a trusted source
-	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
-	err = ctx.verifySignedInfo(sig, signatureMethod, cert, decodedSignature)
-	if err != nil {
-		return nil, err
 	}
 
 	return validated, nil
