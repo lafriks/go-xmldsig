@@ -1,6 +1,7 @@
 package xmldsig
 
 import (
+	"maps"
 	"sort"
 
 	"github.com/lafriks/go-xmldsig/v2/etreeutils"
@@ -155,9 +156,7 @@ func canonicalPrep(el *etree.Element, strip bool, comments bool) *etree.Element 
 
 func canonicalPrepInner(el *etree.Element, parentCtx etreeutils.NSContext, seenSoFar map[string]string, strip bool, comments bool) *etree.Element {
 	_seenSoFar := make(map[string]string)
-	for k, v := range seenSoFar {
-		_seenSoFar[k] = v
-	}
+	maps.Copy(_seenSoFar, seenSoFar)
 
 	ne := el.Copy()
 	ctx, err := parentCtx.SubContext(ne)
