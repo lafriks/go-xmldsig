@@ -3,14 +3,17 @@ package xmldsig
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha1"
 	_ "crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
@@ -126,14 +129,55 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 		}
 
 		return rawSignature, nil
-	} else {
-		rawSignature, err := ctx.signer.Sign(rand.Reader, digest, ctx.Hash)
+	}
+
+	rawSignature, err := ctx.signer.Sign(rand.Reader, digest, ctx.Hash)
+	if err != nil {
+		return nil, err
+	}
+
+	if ecdsaKey, ok := ctx.signer.(*ecdsa.PrivateKey); ok {
+		rawSignature, err = ecdsaDERToXMLDSig(rawSignature, ecdsaKey.Curve)
 		if err != nil {
 			return nil, err
 		}
-
-		return rawSignature, nil
 	}
+
+	return rawSignature, nil
+}
+
+func ecdsaDERToXMLDSig(der []byte, curve elliptic.Curve) ([]byte, error) {
+	var sig struct {
+		R *big.Int
+		S *big.Int
+	}
+
+	rest, err := asn1.Unmarshal(der, &sig)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, errors.New("invalid ECDSA signature: trailing ASN.1 data")
+	}
+	if sig.R == nil || sig.S == nil {
+		return nil, errors.New("invalid ECDSA signature: missing r or s")
+	}
+
+	byteLen := (curve.Params().BitSize + 7) / 8
+
+	rBytes := sig.R.Bytes()
+	sBytes := sig.S.Bytes()
+
+	if len(rBytes) > byteLen || len(sBytes) > byteLen {
+		return nil, errors.New("invalid ECDSA signature: r or s too large")
+	}
+
+	out := make([]byte, byteLen*2)
+
+	copy(out[byteLen-len(rBytes):byteLen], rBytes)
+	copy(out[byteLen*2-len(sBytes):], sBytes)
+
+	return out, nil
 }
 
 func (ctx *SigningContext) getCerts() ([][]byte, error) {
