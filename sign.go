@@ -136,8 +136,8 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if ecdsaKey, ok := ctx.signer.(*ecdsa.PrivateKey); ok {
-		rawSignature, err = ecdsaDERToXMLDSig(rawSignature, ecdsaKey.Curve)
+	if ecdsaPub, ok := ctx.signer.Public().(*ecdsa.PublicKey); ok {
+		rawSignature, err = ecdsaDERToXMLDSig(rawSignature, ecdsaPub.Curve)
 		if err != nil {
 			return nil, err
 		}
@@ -146,38 +146,41 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 	return rawSignature, nil
 }
 
+// ecdsaDERToXMLDSig converts a DER/ASN.1-encoded ECDSA signature to the fixed-width
+// r||s format required by XMLDSig (RFC 4050 §3.3). Each of r and s is zero-padded
+// to ceil(bitSize/8) bytes and concatenated.
 func ecdsaDERToXMLDSig(der []byte, curve elliptic.Curve) ([]byte, error) {
-	var sig struct {
-		R *big.Int
-		S *big.Int
-	}
-
+	var sig struct{ R, S *big.Int }
 	rest, err := asn1.Unmarshal(der, &sig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid ECDSA signature: %w", err)
 	}
 	if len(rest) != 0 {
-		return nil, errors.New("invalid ECDSA signature: trailing ASN.1 data")
+		return nil, errors.New("invalid ECDSA signature: trailing data")
 	}
 	if sig.R == nil || sig.S == nil {
 		return nil, errors.New("invalid ECDSA signature: missing r or s")
 	}
 
 	byteLen := (curve.Params().BitSize + 7) / 8
-
-	rBytes := sig.R.Bytes()
-	sBytes := sig.S.Bytes()
-
-	if len(rBytes) > byteLen || len(sBytes) > byteLen {
-		return nil, errors.New("invalid ECDSA signature: r or s too large")
+	if sig.R.BitLen() > byteLen*8 || sig.S.BitLen() > byteLen*8 {
+		return nil, errors.New("invalid ECDSA signature: r or s exceeds curve order")
 	}
 
 	out := make([]byte, byteLen*2)
-
-	copy(out[byteLen-len(rBytes):byteLen], rBytes)
-	copy(out[byteLen*2-len(sBytes):], sBytes)
-
+	sig.R.FillBytes(out[:byteLen])
+	sig.S.FillBytes(out[byteLen:])
 	return out, nil
+}
+
+func ecdsaXMLDSigToDER(sig []byte, curve elliptic.Curve) ([]byte, error) {
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if len(sig) != byteLen*2 {
+		return sig, nil
+	}
+	r := new(big.Int).SetBytes(sig[:byteLen])
+	s := new(big.Int).SetBytes(sig[byteLen:])
+	return asn1.Marshal(struct{ R, S *big.Int }{r, s})
 }
 
 func (ctx *SigningContext) getCerts() ([][]byte, error) {
