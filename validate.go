@@ -157,6 +157,23 @@ func (ctx *ValidationContext) transform(
 	return canonicalizer, nil
 }
 
+func findElementByID(root *etree.Element, idAttr, id string) *etree.Element {
+	stack := []*etree.Element{root}
+	for len(stack) > 0 {
+		el := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if el.SelectAttrValue(idAttr, "") == id {
+			return el
+		}
+		for _, token := range el.Child {
+			if child, ok := token.(*etree.Element); ok {
+				stack = append(stack, child)
+			}
+		}
+	}
+	return nil
+}
+
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {
 	if sig.SignatureValue == nil {
 		return nil, errors.New("missing signature value")
@@ -217,22 +234,25 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		referencedEl := el
 		if ref.URI != "" &&
 			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IdAttribute, "") != ref.URI[1:]) {
-			var rawPath string
 			switch ref.URI[0] {
 			case '/':
-				rawPath = ref.URI
+				// Absolute XPath path — signer-controlled, no user-supplied interpolation.
+				path, err := etree.CompilePath(ref.URI)
+				if err != nil {
+					return nil, err
+				}
+				referencedEl = el.FindElementPath(path)
+				if referencedEl == nil {
+					return nil, errors.New("error implementing etree: " + ref.URI)
+				}
 			case '#':
-				rawPath = "//*[@" + ctx.IdAttribute + "='" + ref.URI[1:] + "']"
+				// ID reference — look up by attribute value directly to avoid XPath injection.
+				referencedEl = findElementByID(el, ctx.IdAttribute, ref.URI[1:])
+				if referencedEl == nil {
+					return nil, errors.New("error implementing etree: " + ref.URI)
+				}
 			default:
 				return nil, errors.New("unsupported reference URI: " + ref.URI)
-			}
-			path, err := etree.CompilePath(rawPath)
-			if err != nil {
-				return nil, err
-			}
-			referencedEl = el.FindElementPath(path)
-			if referencedEl == nil {
-				return nil, errors.New("error implementing etree: " + rawPath)
 			}
 		}
 
