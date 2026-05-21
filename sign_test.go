@@ -175,6 +175,36 @@ func TestSignWithECDSA(t *testing.T) {
 	testSignWithContext(t, ctx, method, crypto.SHA512)
 }
 
+func TestSignAndValidateWithECDSA(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(ecdsaCert), []byte(ecdsaKey))
+	require.NoError(t, err)
+
+	signingCtx, err := NewSigningContext(cert.PrivateKey.(crypto.Signer), cert.Certificate)
+	require.NoError(t, err)
+
+	err = signingCtx.SetSignatureMethod(ECDSASHA256SignatureMethod)
+	require.NoError(t, err)
+
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "test-id-1")
+
+	signed, err := signingCtx.SignEnveloped(el)
+	require.NoError(t, err)
+
+	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	require.NoError(t, err)
+
+	certStore := MemoryX509CertificateStore{
+		Roots: []*x509.Certificate{x509Cert},
+	}
+
+	// Use a time within the test certificate's validity period (2019-06-13 to 2021-06-12).
+	vc := NewTestValidationContext(&certStore, time.Unix(1623328519, 0))
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
 func TestSignRefs(t *testing.T) {
 	randomKeyStore := RandomKeyStoreForTest()
 	ctx := NewDefaultSigningContext(randomKeyStore)

@@ -2,6 +2,7 @@ package xmldsig
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -230,12 +231,16 @@ func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId
 		return errors.New("unknown signature method: " + signatureMethodId)
 	}
 
-	err = cert.CheckSignature(algo, canonical, decodedSignature)
-	if err != nil {
-		return err
+	// XMLDSig stores ECDSA signatures as r||s (RFC 4050 §3.3), but Go's
+	// x509.Certificate.CheckSignature expects DER/ASN.1. Convert if needed.
+	if ecdsaPub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
+		decodedSignature, err = ecdsaXMLDSigToDER(decodedSignature, ecdsaPub.Curve)
+		if err != nil {
+			return err
+		}
 	}
 
-	return nil
+	return cert.CheckSignature(algo, canonical, decodedSignature)
 }
 
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {

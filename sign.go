@@ -3,14 +3,17 @@ package xmldsig
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha1"
 	_ "crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
@@ -126,14 +129,58 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 		}
 
 		return rawSignature, nil
-	} else {
-		rawSignature, err := ctx.signer.Sign(rand.Reader, digest, ctx.Hash)
+	}
+
+	rawSignature, err := ctx.signer.Sign(rand.Reader, digest, ctx.Hash)
+	if err != nil {
+		return nil, err
+	}
+
+	if ecdsaPub, ok := ctx.signer.Public().(*ecdsa.PublicKey); ok {
+		rawSignature, err = ecdsaDERToXMLDSig(rawSignature, ecdsaPub.Curve)
 		if err != nil {
 			return nil, err
 		}
-
-		return rawSignature, nil
 	}
+
+	return rawSignature, nil
+}
+
+// ecdsaDERToXMLDSig converts a DER/ASN.1-encoded ECDSA signature to the fixed-width
+// r||s format required by XMLDSig (RFC 4050 §3.3). Each of r and s is zero-padded
+// to ceil(bitSize/8) bytes and concatenated.
+func ecdsaDERToXMLDSig(der []byte, curve elliptic.Curve) ([]byte, error) {
+	var sig struct{ R, S *big.Int }
+	rest, err := asn1.Unmarshal(der, &sig)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ECDSA signature: %w", err)
+	}
+	if len(rest) != 0 {
+		return nil, errors.New("invalid ECDSA signature: trailing data")
+	}
+	if sig.R == nil || sig.S == nil {
+		return nil, errors.New("invalid ECDSA signature: missing r or s")
+	}
+
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if sig.R.BitLen() > byteLen*8 || sig.S.BitLen() > byteLen*8 {
+		return nil, errors.New("invalid ECDSA signature: r or s exceeds curve order")
+	}
+
+	out := make([]byte, byteLen*2)
+	sig.R.FillBytes(out[:byteLen])
+	sig.S.FillBytes(out[byteLen:])
+	return out, nil
+}
+
+func ecdsaXMLDSigToDER(sig []byte, curve elliptic.Curve) ([]byte, error) {
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if len(sig) != byteLen*2 {
+		return sig, nil
+	}
+	r := new(big.Int).SetBytes(sig[:byteLen])
+	s := new(big.Int).SetBytes(sig[byteLen:])
+	return asn1.Marshal(struct{ R, S *big.Int }{r, s})
 }
 
 func (ctx *SigningContext) getCerts() ([][]byte, error) {
