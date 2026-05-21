@@ -56,7 +56,7 @@ func testSignWithContext(t *testing.T, ctx *SigningContext, sigMethodID string, 
 
 	canonicalizationMethodAttr := canonicalizationMethodElement.SelectAttr(AlgorithmAttr)
 	require.NotEmpty(t, canonicalizationMethodAttr)
-	require.Equal(t, CanonicalXML11AlgorithmId.String(), canonicalizationMethodAttr.Value)
+	require.Equal(t, CanonicalXML11AlgorithmID.String(), canonicalizationMethodAttr.Value)
 
 	signatureMethodElement := signedInfo.FindElement("//" + SignatureMethodTag)
 	require.NotEmpty(t, signatureMethodElement)
@@ -80,7 +80,7 @@ func testSignWithContext(t *testing.T, ctx *SigningContext, sigMethodID string, 
 
 	algorithmAttr := transformElement.SelectAttr(AlgorithmAttr)
 	require.NotEmpty(t, algorithmAttr)
-	require.Equal(t, EnvelopedSignatureAltorithmId.String(), algorithmAttr.Value)
+	require.Equal(t, EnvelopedSignatureAlgorithmID.String(), algorithmAttr.Value)
 
 	digestMethodElement := referenceElement.FindElement("//" + DigestMethodTag)
 	require.NotEmpty(t, digestMethodElement)

@@ -69,9 +69,9 @@ func (c *c14N10ExclusiveCanonicalizer) Canonicalize(el *etree.Element) ([]byte, 
 
 func (c *c14N10ExclusiveCanonicalizer) Algorithm() AlgorithmID {
 	if c.comments {
-		return CanonicalXML10ExclusiveWithCommentsAlgorithmId
+		return CanonicalXML10ExclusiveWithCommentsAlgorithmID
 	}
-	return CanonicalXML10ExclusiveAlgorithmId
+	return CanonicalXML10ExclusiveAlgorithmID
 }
 
 type c14N11Canonicalizer struct {
@@ -99,9 +99,9 @@ func (c *c14N11Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
 
 func (c *c14N11Canonicalizer) Algorithm() AlgorithmID {
 	if c.comments {
-		return CanonicalXML11WithCommentsAlgorithmId
+		return CanonicalXML11WithCommentsAlgorithmID
 	}
-	return CanonicalXML11AlgorithmId
+	return CanonicalXML11AlgorithmID
 }
 
 type c14N10Canonicalizer struct {
@@ -132,9 +132,9 @@ func (c *c14N10Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
 
 func (c *c14N10Canonicalizer) Algorithm() AlgorithmID {
 	if c.comments {
-		return CanonicalXML10WithCommentsAlgorithmId
+		return CanonicalXML10WithCommentsAlgorithmID
 	}
-	return CanonicalXML10AlgorithmId
+	return CanonicalXML10AlgorithmID
 }
 
 const nsSpace = "xmlns"
@@ -166,7 +166,7 @@ func canonicalPrepInner(el *etree.Element, parentCtx etreeutils.NSContext, seenS
 	sort.Sort(etreeutils.NewSortedAttrs(ctx, ne.Attr))
 	n := 0
 	for _, attr := range ne.Attr {
-		if attr.Space != nsSpace && !(attr.Space == "" && attr.Key == nsSpace) {
+		if attr.Space != nsSpace && (attr.Space != "" || attr.Key != nsSpace) {
 			ne.Attr[n] = attr
 			n++
 			continue

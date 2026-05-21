@@ -228,7 +228,7 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 	for _, el := range els {
 		reference := ctx.createNamespacedElement(signedInfo, ReferenceTag)
 
-		if alg := ctx.Canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmId || alg == CanonicalXML11WithCommentsAlgorithmId {
+		if alg := ctx.Canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmID || alg == CanonicalXML11WithCommentsAlgorithmID {
 			// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
 			// of the element must declare all namespaces that are in scope at it's final
 			// enveloped location in the document. In order to do that, we're going to construct
@@ -270,7 +270,7 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		transforms := ctx.createNamespacedElement(reference, TransformsTag)
 		if enveloped {
 			ctx.createNamespacedElement(transforms, TransformTag).
-				CreateAttr(AlgorithmAttr, EnvelopedSignatureAltorithmId.String())
+				CreateAttr(AlgorithmAttr, EnvelopedSignatureAlgorithmID.String())
 		}
 		ctx.createNamespacedElement(transforms, TransformTag).
 			CreateAttr(AlgorithmAttr, string(ctx.Canonicalizer.Algorithm()))
@@ -321,7 +321,7 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 	// Default NSContext for the SignedInfo element.
 	elNSCtx := etreeutils.NewDefaultNSContext()
 
-	if alg := ctx.Canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmId || alg == CanonicalXML11WithCommentsAlgorithmId {
+	if alg := ctx.Canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmID || alg == CanonicalXML11WithCommentsAlgorithmID {
 		// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
 		// of the SignedInfo must declare all namespaces that are in scope at it's final
 		// enveloped location in the document. In order to do that, we're going to construct

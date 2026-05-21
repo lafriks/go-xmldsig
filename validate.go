@@ -15,7 +15,7 @@ import (
 	"github.com/beevik/etree"
 )
 
-var whiteSpace = regexp.MustCompile(`\\s+`)
+var whiteSpace = regexp.MustCompile(`\s+`)
 
 var (
 	// ErrMissingSignature indicates that no enveloped signature was found referencing
@@ -112,12 +112,12 @@ func (ctx *ValidationContext) transform(
 		algo := transform.Algorithm
 
 		switch AlgorithmID(algo) {
-		case EnvelopedSignatureAltorithmId:
+		case EnvelopedSignatureAlgorithmID:
 			if !removeElementAtPath(el, signaturePath) {
 				return nil, errors.New("error applying canonicalization transform: Signature not found")
 			}
 
-		case CanonicalXML10ExclusiveAlgorithmId:
+		case CanonicalXML10ExclusiveAlgorithmID:
 			var prefixList string
 			if transform.InclusiveNamespaces != nil {
 				prefixList = transform.InclusiveNamespaces.PrefixList
@@ -125,7 +125,7 @@ func (ctx *ValidationContext) transform(
 
 			canonicalizer = MakeC14N10ExclusiveCanonicalizerWithPrefixList(prefixList)
 
-		case CanonicalXML10ExclusiveWithCommentsAlgorithmId:
+		case CanonicalXML10ExclusiveWithCommentsAlgorithmID:
 			var prefixList string
 			if transform.InclusiveNamespaces != nil {
 				prefixList = transform.InclusiveNamespaces.PrefixList
@@ -133,16 +133,16 @@ func (ctx *ValidationContext) transform(
 
 			canonicalizer = MakeC14N10ExclusiveWithCommentsCanonicalizerWithPrefixList(prefixList)
 
-		case CanonicalXML11AlgorithmId:
+		case CanonicalXML11AlgorithmID:
 			canonicalizer = MakeC14N11Canonicalizer()
 
-		case CanonicalXML11WithCommentsAlgorithmId:
+		case CanonicalXML11WithCommentsAlgorithmID:
 			canonicalizer = MakeC14N11WithCommentsCanonicalizer()
 
-		case CanonicalXML10AlgorithmId:
+		case CanonicalXML10AlgorithmID:
 			canonicalizer = MakeC14N10Canonicalizer()
 
-		case CanonicalXML10WithCommentsAlgorithmId:
+		case CanonicalXML10WithCommentsAlgorithmID:
 			canonicalizer = MakeC14N10WithCommentsCanonicalizer()
 
 		default:
@@ -228,6 +228,10 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		return nil, err
 	}
 
+	if len(signedInfo.References) == 0 {
+		return nil, errors.New("SignedInfo must contain at least one Reference")
+	}
+
 	// Process each reference using the verified SignedInfo.
 	validated := make([]*etree.Element, 0, len(signedInfo.References))
 	for _, ref := range signedInfo.References {
@@ -265,7 +269,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 
 		transformedEl := referencedEl
 
-		if alg := canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmId || alg == CanonicalXML11WithCommentsAlgorithmId {
+		if alg := canonicalizer.Algorithm(); alg == CanonicalXML11AlgorithmID || alg == CanonicalXML11WithCommentsAlgorithmID {
 			// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
 			// of the element must declare all namespaces that are in scope at it's final
 			// enveloped location in the document. In order to do that, we're going to construct
@@ -383,9 +387,9 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 				var canonicalSignedInfo *etree.Element
 
 				switch alg := AlgorithmID(c14NAlgorithm); alg {
-				case CanonicalXML10ExclusiveAlgorithmId, CanonicalXML10ExclusiveWithCommentsAlgorithmId:
+				case CanonicalXML10ExclusiveAlgorithmID, CanonicalXML10ExclusiveWithCommentsAlgorithmID:
 					detachedSignedInfo := signedInfo.Copy()
-					err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmId)
+					err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmID)
 					if err != nil {
 						return err
 					}
@@ -396,15 +400,15 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 					// removing of elements below.
 					canonicalSignedInfo = detachedSignedInfo
 
-				case CanonicalXML11AlgorithmId, CanonicalXML11WithCommentsAlgorithmId:
+				case CanonicalXML11AlgorithmID, CanonicalXML11WithCommentsAlgorithmID:
 					detachedSignedInfo, err := etreeutils.NSDetatch(ctx, signedInfo)
 					if err != nil {
 						return err
 					}
-					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, true, alg == CanonicalXML11WithCommentsAlgorithmId)
+					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, true, alg == CanonicalXML11WithCommentsAlgorithmID)
 
-				case CanonicalXML10AlgorithmId, CanonicalXML10WithCommentsAlgorithmId:
-					canonicalSignedInfo = canonicalPrep(signedInfo, true, alg == CanonicalXML10WithCommentsAlgorithmId)
+				case CanonicalXML10AlgorithmID, CanonicalXML10WithCommentsAlgorithmID:
+					canonicalSignedInfo = canonicalPrep(signedInfo, true, alg == CanonicalXML10WithCommentsAlgorithmID)
 
 				default:
 					return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
@@ -437,7 +441,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		// Traverse references in the signature to determine whether it has at least
 		// one reference to the top level element. If so, conclude the search.
 		for _, ref := range _sig.SignedInfo.References {
-			if ref.URI == "" || ref.URI[1:] == idAttr {
+			if ref.URI == "" || (ref.URI[0] == '#' && ref.URI[1:] == idAttr) {
 				sig = _sig
 				return etreeutils.ErrTraversalHalted
 			}
