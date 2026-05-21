@@ -1,6 +1,7 @@
 package xmldsig
 
 import (
+	"crypto"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -139,23 +140,24 @@ func NewTestValidationContext(certificateStore X509CertificateStore, atTime time
 
 func TestDigest(t *testing.T) {
 	canonicalizer := MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
-	doc := etree.NewDocument()
-	err := doc.ReadFromBytes([]byte(canonicalResponse))
-	require.NoError(t, err)
 
-	vc := NewTestValidationContext(nil, time.Unix(1623328519, 0))
-	digest, err := vc.digest(doc.Root(), "http://www.w3.org/2001/04/xmlenc#sha256", canonicalizer)
-	require.NoError(t, err)
-	require.Equal(t, "gvXF2ygtu4WbVYdepEtHFbgCZLfKW893eFF+x6gjX80=", base64.StdEncoding.EncodeToString(digest))
+	for _, tc := range []struct {
+		xmlStr string
+		want   string
+	}{
+		{canonicalResponse, "gvXF2ygtu4WbVYdepEtHFbgCZLfKW893eFF+x6gjX80="},
+		{canonicalResponse2, "npTAl6kraksBlCRlunbyD6nICTcfsDaHjPXVxoDPrw0="},
+	} {
+		doc := etree.NewDocument()
+		require.NoError(t, doc.ReadFromBytes([]byte(tc.xmlStr)))
 
-	doc = etree.NewDocument()
-	err = doc.ReadFromBytes([]byte(canonicalResponse2))
-	require.NoError(t, err)
+		canonical, err := canonicalizer.Canonicalize(doc.Root())
+		require.NoError(t, err)
 
-	vc = NewTestValidationContext(nil, time.Unix(1623328519, 0))
-	digest, err = vc.digest(doc.Root(), "http://www.w3.org/2001/04/xmlenc#sha256", canonicalizer)
-	require.NoError(t, err)
-	require.Equal(t, "npTAl6kraksBlCRlunbyD6nICTcfsDaHjPXVxoDPrw0=", base64.StdEncoding.EncodeToString(digest))
+		h := crypto.SHA256.New()
+		_, _ = h.Write(canonical)
+		require.Equal(t, tc.want, base64.StdEncoding.EncodeToString(h.Sum(nil)))
+	}
 }
 
 func TestTransform(t *testing.T) {

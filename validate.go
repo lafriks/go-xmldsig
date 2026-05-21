@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"regexp"
@@ -156,119 +157,67 @@ func (ctx *ValidationContext) transform(
 	return canonicalizer, nil
 }
 
-// deprecated
-func (ctx *ValidationContext) digest(el *etree.Element, digestAlgorithmId string, canonicalizer Canonicalizer) ([]byte, error) {
-	canonical, err := canonicalizer.Canonicalize(el)
-	if err != nil {
-		return nil, err
-	}
-
-	digestAlgorithm, ok := digestAlgorithmsByIdentifier[digestAlgorithmId]
-	if !ok {
-		return nil, errors.New("unknown digest algorithm: " + digestAlgorithmId)
-	}
-
-	hash := digestAlgorithm.New()
-	_, err = hash.Write(canonical)
-	if err != nil {
-		return nil, err
-	}
-
-	return hash.Sum(nil), nil
-}
-
-func (ctx *ValidationContext) getCanonicalSignedInfo(sig *Signature) ([]byte, error) {
-	signatureElement := sig.UnderlyingElement()
-
-	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
-	if err != nil {
-		return nil, err
-	}
-
-	signedInfo, err := etreeutils.NSFindOneChildCtx(nsCtx, signatureElement, Namespace, SignedInfoTag)
-	if err != nil {
-		return nil, err
-	}
-
-	if signedInfo == nil {
-		return nil, errors.New("missing SignedInfo")
-	}
-
-	// Canonicalize the xml
-	canonical, err := canonicalSerialize(signedInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	return canonical, nil
-}
-
-func (ctx *ValidationContext) verifySignedInfo(sig *Signature, signatureMethodId string, cert *x509.Certificate, decodedSignature []byte) error {
-	signatureElement := sig.UnderlyingElement()
-
-	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
-	if err != nil {
-		return err
-	}
-
-	signedInfo, err := etreeutils.NSFindOneChildCtx(nsCtx, signatureElement, Namespace, SignedInfoTag)
-	if err != nil {
-		return err
-	}
-
-	if signedInfo == nil {
-		return errors.New("missing SignedInfo")
-	}
-
-	// Canonicalize the xml
-	canonical, err := canonicalSerialize(signedInfo)
-	if err != nil {
-		return err
-	}
-
-	algo, ok := x509SignatureAlgorithmByIdentifier[signatureMethodId]
-	if !ok {
-		return errors.New("unknown signature method: " + signatureMethodId)
-	}
-
-	// XMLDSig stores ECDSA signatures as r||s (RFC 4050 §3.3), but Go's
-	// x509.Certificate.CheckSignature expects DER/ASN.1. Convert if needed.
-	if ecdsaPub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
-		decodedSignature, err = ecdsaXMLDSigToDER(decodedSignature, ecdsaPub.Curve)
-		if err != nil {
-			return err
-		}
-	}
-
-	return cert.CheckSignature(algo, canonical, decodedSignature)
-}
-
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {
-	// Verify signature FIRST before processing references (security improvement)
 	if sig.SignatureValue == nil {
 		return nil, errors.New("missing signature value")
 	}
 
-	// Decode the 'SignatureValue' so we can compare against it
 	decodedSignature, err := base64.StdEncoding.DecodeString(sig.SignatureValue.Data)
 	if err != nil {
 		return nil, fmt.Errorf("could not decode signature: %w", err)
 	}
 
-	// Actually verify the 'SignedInfo' was signed by a trusted source
-	signatureMethod := sig.SignedInfo.SignatureMethod.Algorithm
-	if err = ctx.verifySignedInfo(sig, signatureMethod, cert, decodedSignature); err != nil {
+	// findSignature already replaced the SignedInfo element with its canonicalized
+	// form, so canonicalSerialize gives us exactly the bytes that were signed.
+	signatureElement := sig.UnderlyingElement()
+	nsCtx, err := etreeutils.NSBuildParentContext(signatureElement)
+	if err != nil {
+		return nil, err
+	}
+	signedInfoEl, err := etreeutils.NSFindOneChildCtx(nsCtx, signatureElement, Namespace, SignedInfoTag)
+	if err != nil {
+		return nil, err
+	}
+	if signedInfoEl == nil {
+		return nil, errors.New("missing SignedInfo")
+	}
+	canonicalBytes, err := canonicalSerialize(signedInfoEl)
+	if err != nil {
 		return nil, err
 	}
 
-	validated := make([]*etree.Element, 0, len(sig.SignedInfo.References))
-	// Find the first reference which references the top-level element
-	for _, ref := range sig.SignedInfo.References {
+	// Parse SignedInfo from the canonical bytes so that all further processing is
+	// driven by exactly what was signed, not by the raw parsed etree.
+	signedInfo := &SignedInfo{}
+	if err := xml.Unmarshal(canonicalBytes, signedInfo); err != nil {
+		return nil, fmt.Errorf("could not parse canonical SignedInfo: %w", err)
+	}
+
+	// Verify the signature against the canonical bytes.
+	algo, ok := x509SignatureAlgorithmByIdentifier[signedInfo.SignatureMethod.Algorithm]
+	if !ok {
+		return nil, errors.New("unknown signature method: " + signedInfo.SignatureMethod.Algorithm)
+	}
+	sigBytes := decodedSignature
+	// XMLDSig stores ECDSA signatures as r||s (RFC 4050 §3.3), but Go's
+	// x509.Certificate.CheckSignature expects DER/ASN.1. Convert if needed.
+	if ecdsaPub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
+		sigBytes, err = ecdsaXMLDSigToDER(decodedSignature, ecdsaPub.Curve)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := cert.CheckSignature(algo, canonicalBytes, sigBytes); err != nil {
+		return nil, err
+	}
+
+	// Process each reference using the verified SignedInfo.
+	validated := make([]*etree.Element, 0, len(signedInfo.References))
+	for _, ref := range signedInfo.References {
 		referencedEl := el
 		if ref.URI != "" &&
 			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IdAttribute, "") != ref.URI[1:]) {
 			var rawPath string
-
 			switch ref.URI[0] {
 			case '/':
 				rawPath = ref.URI
@@ -325,17 +274,24 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		digestAlgorithm := ref.DigestAlgo.Algorithm
 
 		// Digest the transformed XML and compare it to the 'DigestValue' from the 'SignedInfo'
-		digest, err := ctx.digest(transformedEl, digestAlgorithm, canonicalizer)
+		canonical, err := canonicalizer.Canonicalize(transformedEl)
 		if err != nil {
 			return nil, err
 		}
+
+		digestAlgo, ok := digestAlgorithmsByIdentifier[digestAlgorithm]
+		if !ok {
+			return nil, errors.New("unknown digest algorithm: " + digestAlgorithm)
+		}
+		h := digestAlgo.New()
+		_, _ = h.Write(canonical)
 
 		decodedDigestValue, err := base64.StdEncoding.DecodeString(ref.DigestValue)
 		if err != nil {
 			return nil, err
 		}
 
-		if !bytes.Equal(digest, decodedDigestValue) {
+		if !bytes.Equal(h.Sum(nil), decodedDigestValue) {
 			return nil, fmt.Errorf("digest is not valid for '%s'", ref.URI)
 		}
 
