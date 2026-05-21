@@ -1,6 +1,6 @@
 # xmldsig
 
-[![Build Status](https://cloud.drone.io/api/badges/lafriks/go-xmldsig/status.svg?ref=refs/heads/main)](https://cloud.drone.io/lafriks/go-xmldsig)
+[![Build Status](https://github.com/lafriks/go-xmldsig/actions/workflows/test.yml/badge.svg)](https://github.com/lafriks/go-xmldsig/actions/workflows/test.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/lafriks/go-xmldsig)](https://pkg.go.dev/github.com/lafriks/go-xmldsig)
 
 XML Digital Signatures implemented in pure Go.
