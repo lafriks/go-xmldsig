@@ -35,7 +35,7 @@ func FuzzValidateXML(f *testing.F) {
 		}
 
 		ctx := NewDefaultValidationContext(certStore)
-		ctx.Clock = NewFakeClockAt(time.Date(2016, 3, 15, 0, 22, 0, 0, time.UTC))
+		ctx.Clock = &fixedClock{t: time.Date(2016, 3, 15, 0, 22, 0, 0, time.UTC)}
 
 		// Errors are expected; we're looking for panics and hangs.
 		ctx.Validate(root)
@@ -53,7 +53,7 @@ func FuzzCanonicalize(f *testing.F) {
 		MakeC14N10ExclusiveWithCommentsCanonicalizerWithPrefixList(""),
 		MakeC14N11Canonicalizer(),
 		MakeC14N11WithCommentsCanonicalizer(),
-		MakeC14N10RecCanonicalizer(),
+		MakeC14N10Canonicalizer(),
 		MakeC14N10WithCommentsCanonicalizer(),
 		MakeNullCanonicalizer(),
 	}
@@ -175,7 +175,7 @@ func FuzzValidateWithCert(f *testing.F) {
 		}
 
 		ctx := NewDefaultValidationContext(certStore)
-		ctx.Clock = NewFakeClockAt(time.Date(2016, 3, 15, 0, 22, 0, 0, time.UTC))
+		ctx.Clock = &fixedClock{t: time.Date(2016, 3, 15, 0, 22, 0, 0, time.UTC)}
 
 		// Errors are expected; we're looking for panics and hangs.
 		ctx.Validate(root)
