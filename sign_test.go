@@ -2,9 +2,13 @@ package xmldsig
 
 import (
 	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"math/big"
 	"testing"
 	"time"
 
@@ -367,5 +371,62 @@ func TestSetPSSSignatureMethodRejectsNonRSA(t *testing.T) {
 	require.NoError(t, err)
 
 	err = ctx.SetPSSSignatureMethod(crypto.SHA256)
+	require.Error(t, err)
+}
+
+// generateEd25519Cert creates a self-signed Ed25519 certificate for testing.
+func generateEd25519Cert(t *testing.T) (ed25519.PrivateKey, *x509.Certificate, []byte) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-ed25519"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	return priv, cert, certDER
+}
+
+func TestSignAndValidateEd25519(t *testing.T) {
+	priv, cert, certDER := generateEd25519Cert(t)
+
+	ctx, err := NewSigningContext(priv, [][]byte{certDER})
+	require.NoError(t, err)
+
+	err = ctx.SetSignatureMethod(EdDSAEd25519SignatureMethod)
+	require.NoError(t, err)
+
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "ed25519-test-1")
+
+	signed, err := ctx.SignEnveloped(el)
+	require.NoError(t, err)
+
+	// Verify the SignatureMethod URI.
+	sigMethodEl := signed.FindElement("//" + SignatureMethodTag)
+	require.NotNil(t, sigMethodEl)
+	require.Equal(t, EdDSAEd25519SignatureMethod, sigMethodEl.SelectAttrValue(AlgorithmAttr, ""))
+
+	certStore := MemoryX509CertificateStore{Roots: []*x509.Certificate{cert}}
+	vc := NewTestValidationContext(&certStore, time.Now())
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
+func TestSetSignatureMethodRejectsEd25519ForRSAKey(t *testing.T) {
+	ks := RandomKeyStoreForTest().(*MemoryX509KeyStore)
+	ctx, err := NewSigningContext(ks.privateKey, [][]byte{ks.cert})
+	require.NoError(t, err)
+
+	err = ctx.SetSignatureMethod(EdDSAEd25519SignatureMethod)
 	require.Error(t, err)
 }

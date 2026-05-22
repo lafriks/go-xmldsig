@@ -42,15 +42,16 @@ func (id AlgorithmID) String() string {
 }
 
 const (
-	RSASHA1SignatureMethod     = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
-	RSASHA256SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
-	RSASHA384SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
-	RSASHA512SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
-	RSAPSSSignatureMethod      = "http://www.w3.org/2007/05/xmldsig-more#rsa-pss"
-	ECDSASHA1SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha1"
-	ECDSASHA256SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"
-	ECDSASHA384SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384"
-	ECDSASHA512SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512"
+	RSASHA1SignatureMethod      = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
+	RSASHA256SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+	RSASHA384SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
+	RSASHA512SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
+	RSAPSSSignatureMethod       = "http://www.w3.org/2007/05/xmldsig-more#rsa-pss"
+	ECDSASHA1SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha1"
+	ECDSASHA256SignatureMethod  = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"
+	ECDSASHA384SignatureMethod  = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384"
+	ECDSASHA512SignatureMethod  = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512"
+	EdDSAEd25519SignatureMethod = "http://www.w3.org/2021/04/xmldsig-more#eddsa-ed25519"
 
 	// MGF1 algorythm used within RSAPSSParams
 	RSAPSS_MGF1URI = "http://www.w3.org/2007/05/xmldsig-more#MGF1"
@@ -115,15 +116,19 @@ var signatureMethodIdentifiers = map[x509.PublicKeyAlgorithm]map[crypto.Hash]str
 		crypto.SHA384: ECDSASHA384SignatureMethod,
 		crypto.SHA512: ECDSASHA512SignatureMethod,
 	},
+	x509.Ed25519: {
+		crypto.Hash(0): EdDSAEd25519SignatureMethod,
+	},
 }
 
 var x509SignatureAlgorithmByIdentifier = map[string]x509.SignatureAlgorithm{
-	RSASHA1SignatureMethod:     x509.SHA1WithRSA,
-	RSASHA256SignatureMethod:   x509.SHA256WithRSA,
-	RSASHA384SignatureMethod:   x509.SHA384WithRSA,
-	RSASHA512SignatureMethod:   x509.SHA512WithRSA,
-	ECDSASHA1SignatureMethod:   x509.ECDSAWithSHA1,
-	ECDSASHA256SignatureMethod: x509.ECDSAWithSHA256,
-	ECDSASHA384SignatureMethod: x509.ECDSAWithSHA384,
-	ECDSASHA512SignatureMethod: x509.ECDSAWithSHA512,
+	RSASHA1SignatureMethod:      x509.SHA1WithRSA,
+	RSASHA256SignatureMethod:    x509.SHA256WithRSA,
+	RSASHA384SignatureMethod:    x509.SHA384WithRSA,
+	RSASHA512SignatureMethod:    x509.SHA512WithRSA,
+	ECDSASHA1SignatureMethod:    x509.ECDSAWithSHA1,
+	ECDSASHA256SignatureMethod:  x509.ECDSAWithSHA256,
+	ECDSASHA384SignatureMethod:  x509.ECDSAWithSHA384,
+	ECDSASHA512SignatureMethod:  x509.ECDSAWithSHA512,
+	EdDSAEd25519SignatureMethod: x509.PureEd25519,
 }

@@ -3,6 +3,7 @@ package xmldsig
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -82,6 +83,8 @@ func (ctx *SigningContext) getPublicKeyAlgorithm() x509.PublicKeyAlgorithm {
 			return x509.ECDSA
 		case *rsa.PublicKey:
 			return x509.RSA
+		case ed25519.PublicKey:
+			return x509.Ed25519
 		}
 	}
 
@@ -110,7 +113,12 @@ func (ctx *SigningContext) digest(el *etree.Element) ([]byte, error) {
 		return nil, err
 	}
 
-	hash := ctx.Hash.New()
+	h := ctx.Hash
+	// Ed25519 has no hash parameter (Hash == 0); use SHA-256 for reference digests.
+	if h == crypto.Hash(0) {
+		h = crypto.SHA256
+	}
+	hash := h.New()
 	_, err = hash.Write(canonical)
 	if err != nil {
 		return nil, err
@@ -166,6 +174,18 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 	}
 
 	return rawSignature, nil
+}
+
+// signCanonical signs the canonical bytes of a SignedInfo element.
+func (ctx *SigningContext) signCanonical(canonical []byte) ([]byte, error) {
+	if ctx.getPublicKeyAlgorithm() == x509.Ed25519 {
+		// Ed25519 signs the raw message; crypto.Hash(0) signals no prehashing.
+		return ctx.signer.Sign(rand.Reader, canonical, crypto.Hash(0))
+	}
+
+	h := ctx.Hash.New()
+	h.Write(canonical)
+	return ctx.signDigest(h.Sum(nil))
 }
 
 // ecdsaDERToXMLDSig converts a DER/ASN.1-encoded ECDSA signature to the fixed-width
@@ -402,12 +422,12 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 		return nil, err
 	}
 
-	digest, err := ctx.digest(detatchedSignedInfo)
+	canonical, err := ctx.Canonicalizer.Canonicalize(detatchedSignedInfo)
 	if err != nil {
 		return nil, err
 	}
 
-	rawSignature, err := ctx.signDigest(digest)
+	rawSignature, err := ctx.signCanonical(canonical)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +527,12 @@ func (ctx *SigningContext) SetPSSSignatureMethod(hash crypto.Hash) error {
 }
 
 func (ctx *SigningContext) GetDigestAlgorithmIdentifier() string {
-	if ident, ok := digestAlgorithmIdentifiers[ctx.Hash]; ok {
+	h := ctx.Hash
+	// Ed25519 has no hash parameter (Hash == 0); use SHA-256 for reference digests.
+	if h == crypto.Hash(0) {
+		h = crypto.SHA256
+	}
+	if ident, ok := digestAlgorithmIdentifiers[h]; ok {
 		return ident
 	}
 	return ""
