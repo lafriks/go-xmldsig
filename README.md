@@ -7,6 +7,73 @@ XML Digital Signatures implemented in pure Go.
 
 Fork of [russellhaering/goxmldsig](https://github.com/russellhaering/goxmldsig)
 
+## Supported Features
+
+### Signature Algorithms
+
+| Algorithm | URI |
+|---|---|
+| RSA PKCS#1 v1.5 (SHA-1, SHA-256, SHA-384, SHA-512) | `http://www.w3.org/2000/09/xmldsig#rsa-sha1` etc. |
+| RSA-PSS | `http://www.w3.org/2007/05/xmldsig-more#rsa-pss` |
+| ECDSA (P-256, P-384, P-521) | `http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256` etc. |
+| Ed25519 | `http://www.w3.org/2021/04/xmldsig-more#eddsa-ed25519` |
+| HMAC-SHA1 | `http://www.w3.org/2000/09/xmldsig#hmac-sha1` |
+
+### Digest Algorithms
+
+| Algorithm | URI |
+|---|---|
+| SHA-1 | `http://www.w3.org/2000/09/xmldsig#sha1` |
+| SHA-256 | `http://www.w3.org/2001/04/xmlenc#sha256` |
+| SHA-384 | `http://www.w3.org/2001/04/xmldsig-more#sha384` |
+| SHA-512 | `http://www.w3.org/2001/04/xmlenc#sha512` |
+
+### Canonicalization Algorithms
+
+| Algorithm | URI |
+|---|---|
+| Canonical XML 1.0 | `http://www.w3.org/TR/2001/REC-xml-c14n-20010315` |
+| Canonical XML 1.0 with comments | `http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments` |
+| Canonical XML 1.1 | `http://www.w3.org/2006/12/xml-c14n11` |
+| Canonical XML 1.1 with comments | `http://www.w3.org/2006/12/xml-c14n11#WithComments` |
+| Exclusive Canonical XML 1.0 | `http://www.w3.org/2001/10/xml-exc-c14n#` |
+| Exclusive Canonical XML 1.0 with comments | `http://www.w3.org/2001/10/xml-exc-c14n#WithComments` |
+
+### Transforms
+
+| Transform | URI |
+|---|---|
+| Enveloped Signature | `http://www.w3.org/2000/09/xmldsig#enveloped-signature` |
+| Base64 | `http://www.w3.org/2000/09/xmldsig#base64` |
+
+### Reference URI Formats
+
+| Format | Example |
+|---|---|
+| Bare ID reference | `#id1234` |
+| XPointer bare-name | `#xpointer(id('id1234'))` |
+| Full document | `#xpointer(/)` |
+| Empty (whole document) | `""` |
+
+### Structure
+
+| Feature | Notes |
+|---|---|
+| Enveloped signatures | Signature embedded inside the signed element |
+| Detached signatures | Signature alongside the signed element |
+| `<Object>` with `<SignatureProperties>` | Signed metadata (e.g. signing timestamp) |
+| Multiple references | Sign multiple elements in one signature |
+| `crypto.Signer` interface | Delegate private key operations to HSMs or other backends |
+
+### KeyInfo / Certificate Resolution
+
+| Element | Support |
+|---|---|
+| `<X509Certificate>` | Full — parse and verify certificate chain |
+| `<X509IssuerSerial>` | Resolve certificate by issuer DN and serial number |
+| `<X509SKI>` | Resolve certificate by subject key identifier |
+| `<X509SubjectName>` | Resolve certificate by subject distinguished name |
+
 ## Installation
 
 Install `go-xmldsig` using `go get`:
@@ -98,10 +165,3 @@ func validate(root *x509.Certificate, el *etree.Element) {
     println(str)
 }
 ```
-
-## Limitations
-
-This library was created in order to [implement SAML 2.0](https://github.com/russellhaering/gosaml2)
-without needing to execute a command line tool to create and validate signatures. It currently
-only implements the subset of relevant standards needed to support that implementation, but
-I hope to make it more complete over time. Contributions are welcome.
