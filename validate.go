@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/lafriks/go-xmldsig/v2/etreeutils"
 
@@ -185,6 +186,34 @@ func findElementByID(root *etree.Element, idAttr, id string) *etree.Element {
 	return nil
 }
 
+// referenceIDAttr parses a Reference URI and returns the bare ID it targets
+// or if it's root element target.
+func referenceIDAttr(uri string) (string, bool, bool) {
+	if uri == "" {
+		return "", true, true
+	}
+	if uri[0] != '#' {
+		return "", false, false
+	}
+	fragment := uri[1:]
+	if strings.HasPrefix(fragment, "xpointer(") && strings.HasSuffix(fragment, ")") {
+		expr := fragment[len("xpointer(") : len(fragment)-1]
+		if expr == "/" {
+			return "", true, true
+		}
+		if strings.HasPrefix(expr, "id(") && strings.HasSuffix(expr, ")") {
+			inner := expr[len("id(") : len(expr)-1]
+			if len(inner) >= 2 &&
+				((inner[0] == '\'' && inner[len(inner)-1] == '\'') ||
+					(inner[0] == '"' && inner[len(inner)-1] == '"')) {
+				return inner[1 : len(inner)-1], false, true
+			}
+		}
+		return "", false, false
+	}
+	return fragment, false, true
+}
+
 func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signature, cert *x509.Certificate) ([]*etree.Element, error) {
 	if sig.SignatureValue == nil {
 		return nil, errors.New("missing signature value")
@@ -272,10 +301,11 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	validated := make([]*etree.Element, 0, len(signedInfo.References))
 	for _, ref := range signedInfo.References {
 		referencedEl := el
-		if ref.URI != "" &&
-			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IDAttribute, "") != ref.URI[1:]) {
-			switch ref.URI[0] {
-			case '/':
+
+		idVal, isRoot, ok := referenceIDAttr(ref.URI)
+		switch {
+		case !ok:
+			if len(ref.URI) > 0 && ref.URI[0] == '/' {
 				// Absolute XPath path — signer-controlled, no user-supplied interpolation.
 				path, err := etree.CompilePath(ref.URI)
 				if err != nil {
@@ -285,14 +315,17 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 				if referencedEl == nil {
 					return nil, errors.New("error implementing etree: " + ref.URI)
 				}
-			case '#':
-				// ID reference — look up by attribute value directly to avoid XPath injection.
-				referencedEl = findElementByID(el, ctx.IDAttribute, ref.URI[1:])
+			} else {
+				return nil, fmt.Errorf("unsupported reference URI: %s", ref.URI)
+			}
+		case isRoot:
+			// Reference the root element as-is.
+		default:
+			if el.SelectAttrValue(ctx.IDAttribute, "") != idVal {
+				referencedEl = findElementByID(el, ctx.IDAttribute, idVal)
 				if referencedEl == nil {
-					return nil, errors.New("error implementing etree: " + ref.URI)
+					return nil, errors.New("referenced ID element not found: " + ref.URI)
 				}
-			default:
-				return nil, errors.New("unsupported reference URI: " + ref.URI)
 			}
 		}
 
@@ -491,7 +524,11 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		// Traverse references in the signature to determine whether it has at least
 		// one reference to the top level element. If so, conclude the search.
 		for _, ref := range _sig.SignedInfo.References {
-			if ref.URI == "" || (ref.URI[0] == '#' && ref.URI[1:] == idAttr) {
+			idVal, isRoot, ok := referenceIDAttr(ref.URI)
+			if !ok {
+				continue
+			}
+			if isRoot || idVal == idAttr {
 				sig = _sig
 				return etreeutils.ErrTraversalHalted
 			}

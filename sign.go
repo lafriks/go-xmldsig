@@ -44,6 +44,9 @@ type SigningContext struct {
 	// to the Signature element but are not digested.
 	Objects []*etree.Element
 
+	// XPointerIDReferences, when true, emits Reference URIs in XPointer form
+	XPointerIDReferences bool
+
 	// KeyStore is mutually exclusive with signer and certs
 	signer crypto.Signer
 	certs  [][]byte
@@ -336,7 +339,13 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		}
 
 		if id := el.SelectAttrValue(ctx.IDAttribute, ""); id == "" {
-			reference.CreateAttr(URIAttr, "")
+			if ctx.XPointerIDReferences {
+				reference.CreateAttr(URIAttr, "#xpointer(/)")
+			} else {
+				reference.CreateAttr(URIAttr, "")
+			}
+		} else if ctx.XPointerIDReferences {
+			reference.CreateAttr(URIAttr, "#xpointer(id('"+id+"'))")
 		} else {
 			reference.CreateAttr(URIAttr, "#"+id)
 		}
@@ -372,7 +381,11 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		}
 
 		objRef := ctx.createNamespacedElement(signedInfo, ReferenceTag)
-		objRef.CreateAttr(URIAttr, "#"+id)
+		if ctx.XPointerIDReferences {
+			objRef.CreateAttr(URIAttr, "#xpointer(id('"+id+"'))")
+		} else {
+			objRef.CreateAttr(URIAttr, "#"+id)
+		}
 
 		objTransforms := ctx.createNamespacedElement(objRef, TransformsTag)
 		ctx.createNamespacedElement(objTransforms, TransformTag).

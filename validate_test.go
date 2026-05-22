@@ -514,3 +514,88 @@ func TestValidateECDSA(t *testing.T) {
 
 	testValidateDoc(t, doc, ecdsaCert)
 }
+
+// signAndRewriteURI signs el enveloped using XPointerIDReferences if requested,
+// and returns the signed element plus a cert store for validation.
+func signWithURIFormat(t *testing.T, el *etree.Element, xpointer bool) (*etree.Element, *MemoryX509CertificateStore) {
+	t.Helper()
+	ks := RandomKeyStoreForTest().(*MemoryX509KeyStore)
+	ctx := NewDefaultSigningContext(ks)
+	ctx.IDAttribute = "ID"
+	ctx.XPointerIDReferences = xpointer
+
+	signed, err := ctx.SignEnveloped(el)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(ks.cert)
+	require.NoError(t, err)
+	return signed, &MemoryX509CertificateStore{Roots: []*x509.Certificate{cert}}
+}
+
+func TestReferenceIDAttrParsing(t *testing.T) {
+	cases := []struct {
+		uri    string
+		id     string
+		isRoot bool
+		ok     bool
+	}{
+		{"", "", true, true},
+		{"#foo", "foo", false, true},
+		{"#xpointer(/)", "", true, true},
+		{"#xpointer(id('bar'))", "bar", false, true},
+		{`#xpointer(id("baz"))`, "baz", false, true},
+		{"#xpointer(//Child)", "", false, false},
+		{"#xpointer(id(bad))", "", false, false},
+		{"/absolute/path", "", false, false},
+	}
+	for _, tc := range cases {
+		id, isRoot, ok := referenceIDAttr(tc.uri)
+		require.Equal(t, tc.ok, ok, "ok mismatch for %q", tc.uri)
+		if ok {
+			require.Equal(t, tc.isRoot, isRoot, "isRoot mismatch for %q", tc.uri)
+			require.Equal(t, tc.id, id, "id mismatch for %q", tc.uri)
+		}
+	}
+}
+
+func TestValidateXPointerID(t *testing.T) {
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "root-xptr")
+
+	signed, store := signWithURIFormat(t, el, true)
+
+	ref := signed.FindElement("//" + ReferenceTag)
+	require.NotNil(t, ref)
+	require.Equal(t, "#xpointer(id('root-xptr'))", ref.SelectAttrValue(URIAttr, ""))
+
+	vc := NewTestValidationContext(store, time.Now())
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
+func TestValidateXPointerRoot(t *testing.T) {
+	// Element with no ID → with XPointerIDReferences=true should emit #xpointer(/).
+	el := &etree.Element{Tag: "Root"}
+
+	signed, store := signWithURIFormat(t, el, true)
+
+	ref := signed.FindElement("//" + ReferenceTag)
+	require.NotNil(t, ref)
+	require.Equal(t, "#xpointer(/)", ref.SelectAttrValue(URIAttr, ""))
+
+	vc := NewTestValidationContext(store, time.Now())
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
+func TestValidateXPointerUnsupported(t *testing.T) {
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "root-bad")
+
+	// Verify that an unsupported xpointer expression returns an appropriate error.
+	_, isRoot, ok := referenceIDAttr("#xpointer(//Child)")
+	require.False(t, ok)
+	require.False(t, isRoot)
+}
