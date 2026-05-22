@@ -44,6 +44,12 @@ type SigningContext struct {
 	// to the Signature element but are not digested.
 	Objects []*etree.Element
 
+	// ObjectReferenceTypes maps an Object's ID value to the Type attribute that
+	// should be written on its <ds:Reference> in SignedInfo.
+	//
+	// Keys are bare ID values (without the leading '#').
+	ObjectReferenceTypes map[string]string
+
 	// XPointerIDReferences, when true, emits Reference URIs in XPointer form
 	XPointerIDReferences bool
 
@@ -260,6 +266,12 @@ func ecdsaXMLDSigToDER(sig []byte, curve elliptic.Curve) ([]byte, error) {
 	return asn1.Marshal(struct{ R, S *big.Int }{r, s})
 }
 
+// GetCertificates returns the DER-encoded certificate chain from the signing
+// context. The first certificate is the signer's certificate.
+func (ctx *SigningContext) GetCertificates() ([][]byte, error) {
+	return ctx.getCerts()
+}
+
 func (ctx *SigningContext) getCerts() ([][]byte, error) {
 	if ctx.KeyStore != nil {
 		if cs, ok := ctx.KeyStore.(X509ChainStore); ok {
@@ -436,6 +448,9 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		}
 
 		objRef := ctx.createNamespacedElement(signedInfo, ReferenceTag)
+		if refType := ctx.ObjectReferenceTypes[id]; refType != "" {
+			objRef.CreateAttr("Type", refType)
+		}
 		if ctx.XPointerIDReferences {
 			objRef.CreateAttr(URIAttr, "#xpointer(id('"+id+"'))")
 		} else {
