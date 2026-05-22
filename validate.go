@@ -31,6 +31,12 @@ type ValidationContext struct {
 	IdAttribute         string
 	Clock               Clock
 	CertificateResolver KeyInfoCertificateResolver
+	// CertVerifyOptions, if set, overrides the x509.VerifyOptions used when
+	// verifying the signing certificate against the trust roots. Roots and
+	// CurrentTime are always set by the library; all other fields (KeyUsages,
+	// DNSName, etc.) are taken from this value. When nil, KeyUsages defaults
+	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}.
+	CertVerifyOptions *x509.VerifyOptions
 }
 
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
@@ -339,15 +345,29 @@ func contains(roots []*x509.Certificate, cert *x509.Certificate) bool {
 // when an xml element repeats under the parent, the last element will win and/or be appended. We need to assert that
 // the Signature object matches the expected shape of a Signature object.
 func validateShape(signatureEl *etree.Element) error {
-	children := signatureEl.ChildElements()
+	parentCtx, err := etreeutils.NSBuildParentContext(signatureEl)
+	if err != nil {
+		return err
+	}
+	sigCtx, err := parentCtx.SubContext(signatureEl)
+	if err != nil {
+		return err
+	}
 
 	childCounts := map[string]int{}
-	for _, child := range children {
+	for _, child := range signatureEl.ChildElements() {
+		childCtx, err := sigCtx.SubContext(child)
+		if err != nil {
+			return err
+		}
+		ns, err := childCtx.LookupPrefix(child.Space)
+		if err != nil || ns != Namespace {
+			continue
+		}
 		childCounts[child.Tag]++
 	}
 
-	validateCount := childCounts[SignedInfoTag] == 1 && childCounts[KeyInfoTag] <= 1 && childCounts[SignatureValueTag] == 1
-	if !validateCount {
+	if childCounts[SignedInfoTag] != 1 || childCounts[SignatureValueTag] != 1 || childCounts[KeyInfoTag] > 1 {
 		return ErrInvalidSignature
 	}
 	return nil
@@ -515,10 +535,14 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 		for _, c := range roots {
 			pool.AddCert(c)
 		}
-		opts := x509.VerifyOptions{
-			Roots:     pool,
-			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		var opts x509.VerifyOptions
+		if ctx.CertVerifyOptions != nil {
+			opts = *ctx.CertVerifyOptions
+		} else {
+			opts.KeyUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
 		}
+		opts.Roots = pool
+		opts.CurrentTime = now
 
 		_, err := cert.Verify(opts)
 		if err != nil {
