@@ -30,7 +30,7 @@ type KeyInfoCertificateResolver func(sig *etree.Element) (*x509.Certificate, err
 
 type ValidationContext struct {
 	CertificateStore    X509CertificateStore
-	IdAttribute         string
+	IDAttribute         string
 	Clock               Clock
 	CertificateResolver KeyInfoCertificateResolver
 	// CertVerifyOptions, if set, overrides the x509.VerifyOptions used when
@@ -44,7 +44,7 @@ type ValidationContext struct {
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
 	return &ValidationContext{
 		CertificateStore: certificateStore,
-		IdAttribute:      DefaultIdAttr,
+		IDAttribute:      DefaultIDAttr,
 		Clock:            &realClock{},
 	}
 }
@@ -273,7 +273,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	for _, ref := range signedInfo.References {
 		referencedEl := el
 		if ref.URI != "" &&
-			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IdAttribute, "") != ref.URI[1:]) {
+			(ref.URI[0] != '#' || referencedEl.SelectAttrValue(ctx.IDAttribute, "") != ref.URI[1:]) {
 			switch ref.URI[0] {
 			case '/':
 				// Absolute XPath path — signer-controlled, no user-supplied interpolation.
@@ -287,7 +287,7 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 				}
 			case '#':
 				// ID reference — look up by attribute value directly to avoid XPath injection.
-				referencedEl = findElementByID(el, ctx.IdAttribute, ref.URI[1:])
+				referencedEl = findElementByID(el, ctx.IDAttribute, ref.URI[1:])
 				if referencedEl == nil {
 					return nil, errors.New("error implementing etree: " + ref.URI)
 				}
@@ -405,7 +405,7 @@ func validateShape(signatureEl *etree.Element) error {
 
 // findSignature searches for a Signature element referencing the passed root element.
 func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, error) {
-	idAttrEl := root.SelectAttr(ctx.IdAttribute)
+	idAttrEl := root.SelectAttr(ctx.IDAttribute)
 	idAttr := ""
 	if idAttrEl != nil {
 		idAttr = idAttrEl.Value
@@ -533,7 +533,7 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 
 	if sig.KeyInfo != nil {
 		// If the Signature includes KeyInfo, extract the certificate from there
-		if len(sig.KeyInfo.X509Data.X509Certificates) != 0 && sig.KeyInfo.X509Data.X509Certificates[0].Data != "" {
+		if sig.KeyInfo.X509Data != nil && len(sig.KeyInfo.X509Data.X509Certificates) != 0 && sig.KeyInfo.X509Data.X509Certificates[0].Data != "" {
 			certData, err := base64.StdEncoding.DecodeString(
 				whiteSpace.ReplaceAllString(sig.KeyInfo.X509Data.X509Certificates[0].Data, ""))
 			if err != nil {

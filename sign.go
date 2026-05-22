@@ -38,6 +38,12 @@ type SigningContext struct {
 	// PSSOptions, when non-nil, enables RSA-PSS signing instead of PKCS#1 v1.5.
 	PSSOptions *rsa.PSSOptions
 
+	// Objects holds optional <ds:Object> elements to include in the signature.
+	// Each Object whose IDAttribute attribute is set will have a corresponding
+	// Reference added to SignedInfo. Objects without an ID are still appended
+	// to the Signature element but are not digested.
+	Objects []*etree.Element
+
 	// KeyStore is mutually exclusive with signer and certs
 	signer crypto.Signer
 	certs  [][]byte
@@ -47,7 +53,7 @@ func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
 	return &SigningContext{
 		Hash:          crypto.SHA256,
 		KeyStore:      ks,
-		IDAttribute:   DefaultIdAttr,
+		IDAttribute:   DefaultIDAttr,
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
 	}
@@ -64,7 +70,7 @@ func NewSigningContext(signer crypto.Signer, certs [][]byte) (*SigningContext, e
 	}
 	ctx := &SigningContext{
 		Hash:          crypto.SHA256,
-		IDAttribute:   DefaultIdAttr,
+		IDAttribute:   DefaultIDAttr,
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
 
@@ -353,6 +359,31 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 			SetText(base64.StdEncoding.EncodeToString(digest))
 	}
 
+	// /SignedInfo/Reference entries for ctx.Objects that have an ID attribute.
+	for _, obj := range ctx.Objects {
+		id := obj.SelectAttrValue(ctx.IDAttribute, "")
+		if id == "" {
+			continue
+		}
+
+		objDigest, err := ctx.digest(obj)
+		if err != nil {
+			return nil, err
+		}
+
+		objRef := ctx.createNamespacedElement(signedInfo, ReferenceTag)
+		objRef.CreateAttr(URIAttr, "#"+id)
+
+		objTransforms := ctx.createNamespacedElement(objRef, TransformsTag)
+		ctx.createNamespacedElement(objTransforms, TransformTag).
+			CreateAttr(AlgorithmAttr, string(ctx.Canonicalizer.Algorithm()))
+
+		ctx.createNamespacedElement(objRef, DigestMethodTag).
+			CreateAttr(AlgorithmAttr, digestAlgorithmIdentifier)
+		ctx.createNamespacedElement(objRef, DigestValueTag).
+			SetText(base64.StdEncoding.EncodeToString(objDigest))
+	}
+
 	return signedInfo, nil
 }
 
@@ -457,6 +488,11 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 		}
 	}
 
+	// Append Object elements after KeyInfo.
+	for _, obj := range ctx.Objects {
+		sig.AddChild(obj.Copy())
+	}
+
 	return sig, nil
 }
 
@@ -464,6 +500,25 @@ func (ctx *SigningContext) createNamespacedElement(el *etree.Element, tag string
 	child := el.CreateElement(tag)
 	child.Space = ctx.Prefix
 	return child
+}
+
+// CreateObject constructs a <ds:Object> element using the signing context's
+// namespace prefix and ID attribute. Set id to "" for an Object that will not
+// be independently referenced from SignedInfo. Pass content elements to embed
+// inside the Object; they are added as children.
+func (ctx *SigningContext) CreateObject(id, mimeType string, content ...*etree.Element) *etree.Element {
+	obj := etree.NewElement(ObjectTag)
+	obj.Space = ctx.Prefix
+	if id != "" {
+		obj.CreateAttr(ctx.IDAttribute, id)
+	}
+	if mimeType != "" {
+		obj.CreateAttr("MimeType", mimeType)
+	}
+	for _, c := range content {
+		obj.AddChild(c.Copy())
+	}
+	return obj
 }
 
 // SignEnveloped signs the given elements and returns a new element with the signature appended to parent element.

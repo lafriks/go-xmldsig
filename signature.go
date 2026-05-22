@@ -76,12 +76,28 @@ type SignatureValue struct {
 
 type KeyInfo struct {
 	XMLName  xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# KeyInfo"`
-	X509Data X509Data `xml:"X509Data"`
+	KeyName  string   `xml:"KeyName"`
+	X509Data *X509Data `xml:"X509Data"`
+}
+
+// X509IssuerSerial identifies a certificate by its issuer distinguished name
+// and serial number per XMLDSig §4.4.4.
+type X509IssuerSerial struct {
+	XMLName      xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# X509IssuerSerial"`
+	IssuerName   string   `xml:"X509IssuerName"`
+	SerialNumber string   `xml:"X509SerialNumber"`
 }
 
 type X509Data struct {
-	XMLName          xml.Name          `xml:"http://www.w3.org/2000/09/xmldsig# X509Data"`
-	X509Certificates []X509Certificate `xml:"X509Certificate"`
+	XMLName          xml.Name           `xml:"http://www.w3.org/2000/09/xmldsig# X509Data"`
+	X509Certificates []X509Certificate  `xml:"X509Certificate"`
+	IssuerSerials    []X509IssuerSerial `xml:"X509IssuerSerial"`
+	// SKIs holds base64-encoded Subject Key Identifier values.
+	SKIs []string `xml:"X509SKI"`
+	// SubjectNames holds X.500 distinguished name strings.
+	SubjectNames []string `xml:"X509SubjectName"`
+	// CRLs holds base64-encoded DER certificate revocation lists.
+	CRLs []string `xml:"X509CRL"`
 }
 
 type X509Certificate struct {
@@ -89,11 +105,39 @@ type X509Certificate struct {
 	Data    string   `xml:",chardata"`
 }
 
+// Object is an optional container for arbitrary content that can be included
+// and referenced within a Signature per XMLDSig Core §4.5.
+type Object struct {
+	XMLName  xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# Object"`
+	ID       string   `xml:"Id,attr,omitempty"`
+	MimeType string   `xml:"MimeType,attr,omitempty"`
+	Encoding string   `xml:"Encoding,attr,omitempty"`
+	InnerXML string   `xml:",innerxml"`
+}
+
+// SignatureProperty holds a single property about the signing act, such as a
+// timestamp or signing location. It must target a Signature element via URI.
+type SignatureProperty struct {
+	XMLName  xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# SignatureProperty"`
+	ID       string   `xml:"Id,attr,omitempty"`
+	Target   string   `xml:"Target,attr"`
+	InnerXML string   `xml:",innerxml"`
+}
+
+// SignatureProperties is a container for SignatureProperty elements, typically
+// placed inside a signed Object per XMLDSig Core §4.6.
+type SignatureProperties struct {
+	XMLName    xml.Name            `xml:"http://www.w3.org/2000/09/xmldsig# SignatureProperties"`
+	ID         string              `xml:"Id,attr,omitempty"`
+	Properties []SignatureProperty `xml:"SignatureProperty"`
+}
+
 type Signature struct {
 	XMLName        xml.Name        `xml:"http://www.w3.org/2000/09/xmldsig# Signature"`
 	SignedInfo     *SignedInfo     `xml:"SignedInfo"`
 	SignatureValue *SignatureValue `xml:"SignatureValue"`
 	KeyInfo        *KeyInfo        `xml:"KeyInfo"`
+	Objects        []Object        `xml:"Object"`
 	el             *etree.Element
 }
 

@@ -26,12 +26,15 @@ const (
 	X509DataTag               = "X509Data"
 	X509CertificateTag        = "X509Certificate"
 	InclusiveNamespacesTag    = "InclusiveNamespaces"
+	ObjectTag                 = "Object"
+	SignaturePropertiesTag    = "SignatureProperties"
+	SignaturePropertyTag      = "SignatureProperty"
 )
 
 const (
 	AlgorithmAttr  = "Algorithm"
 	URIAttr        = "URI"
-	DefaultIdAttr  = "ID"
+	DefaultIDAttr  = "ID"
 	PrefixListAttr = "PrefixList"
 )
 

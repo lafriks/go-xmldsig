@@ -133,7 +133,7 @@ yy7YHlSiVX13QH2XTu/iQQ==
 func NewTestValidationContext(certificateStore X509CertificateStore, atTime time.Time) *ValidationContext {
 	return &ValidationContext{
 		CertificateStore: certificateStore,
-		IdAttribute:      DefaultIdAttr,
+		IDAttribute:      DefaultIDAttr,
 		Clock:            &fixedClock{t: atTime},
 	}
 }

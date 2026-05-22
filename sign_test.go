@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/xml"
 	"math/big"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestSignErrors(t *testing.T) {
 	ctx := &SigningContext{
 		Hash:        crypto.SHA512_256,
 		KeyStore:    randomKeyStore,
-		IDAttribute: DefaultIdAttr,
+		IDAttribute: DefaultIDAttr,
 		Prefix:      DefaultPrefix,
 	}
 
@@ -263,7 +264,7 @@ func TestSignRefs(t *testing.T) {
 	sec.AddChild(sig)
 
 	valctx := NewTestValidationContext(nil, time.Now())
-	valctx.IdAttribute = "u:Id"
+	valctx.IDAttribute = "u:Id"
 	valctx.CertificateResolver = func(sig *etree.Element) (*x509.Certificate, error) {
 		ki := sig.SelectElement("KeyInfo")
 		if sig == nil {
@@ -429,4 +430,111 @@ func TestSetSignatureMethodRejectsEd25519ForRSAKey(t *testing.T) {
 
 	err = ctx.SetSignatureMethod(EdDSAEd25519SignatureMethod)
 	require.Error(t, err)
+}
+
+func TestSignWithObjectAndValidate(t *testing.T) {
+	ks := RandomKeyStoreForTest()
+	ctx := NewDefaultSigningContext(ks)
+	ctx.IDAttribute = "ID"
+
+	obj := ctx.CreateObject("obj-1", "text/plain")
+	obj.SetText("hello world")
+	ctx.Objects = append(ctx.Objects, obj)
+
+	root := &etree.Element{Tag: "Root"}
+	root.CreateAttr("ID", "root-1")
+
+	sig, err := ctx.ConstructSignature(root, []*etree.Element{root}, true)
+	require.NoError(t, err)
+
+	// Object element must be present inside the Signature.
+	objEl := sig.FindElement("//Object")
+	require.NotNil(t, objEl)
+	require.Equal(t, "obj-1", objEl.SelectAttrValue("ID", ""))
+
+	// There must be two References: one for root, one for the Object.
+	refs := sig.FindElements("//SignedInfo/Reference")
+	require.Len(t, refs, 2)
+	uris := []string{
+		refs[0].SelectAttrValue("URI", ""),
+		refs[1].SelectAttrValue("URI", ""),
+	}
+	require.Contains(t, uris, "#obj-1")
+}
+
+func TestSignWithObjectNoID(t *testing.T) {
+	ks := RandomKeyStoreForTest()
+	ctx := NewDefaultSigningContext(ks)
+	ctx.IDAttribute = "ID"
+
+	// Object without an ID — should be appended but not referenced.
+	obj := ctx.CreateObject("", "")
+	obj.SetText("anonymous content")
+	ctx.Objects = append(ctx.Objects, obj)
+
+	root := &etree.Element{Tag: "Root"}
+	root.CreateAttr("ID", "root-2")
+
+	sig, err := ctx.ConstructSignature(root, []*etree.Element{root}, true)
+	require.NoError(t, err)
+
+	objEl := sig.FindElement("//Object")
+	require.NotNil(t, objEl)
+
+	// Only one Reference (the root), not the anonymous Object.
+	refs := sig.FindElements("//SignedInfo/Reference")
+	require.Len(t, refs, 1)
+}
+
+func TestKeyInfoKeyNameParsed(t *testing.T) {
+	raw := `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+  <SignedInfo>
+    <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+    <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+    <Reference URI="#x"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>AAAA</DigestValue></Reference>
+  </SignedInfo>
+  <SignatureValue>AAAA</SignatureValue>
+  <KeyInfo>
+    <KeyName>my-key-name</KeyName>
+  </KeyInfo>
+</Signature>`
+
+	var sig Signature
+	err := xml.Unmarshal([]byte(raw), &sig)
+	require.NoError(t, err)
+	require.NotNil(t, sig.KeyInfo)
+	require.Equal(t, "my-key-name", sig.KeyInfo.KeyName)
+}
+
+func TestX509DataExtendedFieldsParsed(t *testing.T) {
+	raw := `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+  <SignedInfo>
+    <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+    <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+    <Reference URI="#x"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>AAAA</DigestValue></Reference>
+  </SignedInfo>
+  <SignatureValue>AAAA</SignatureValue>
+  <KeyInfo>
+    <X509Data>
+      <X509IssuerSerial>
+        <X509IssuerName>CN=Test CA</X509IssuerName>
+        <X509SerialNumber>42</X509SerialNumber>
+      </X509IssuerSerial>
+      <X509SKI>c2tpYmFzZTY0</X509SKI>
+      <X509SubjectName>CN=Test</X509SubjectName>
+      <X509CRL>Y3JsYmFzZTY0</X509CRL>
+    </X509Data>
+  </KeyInfo>
+</Signature>`
+
+	var sig Signature
+	err := xml.Unmarshal([]byte(raw), &sig)
+	require.NoError(t, err)
+	require.NotNil(t, sig.KeyInfo)
+	require.Len(t, sig.KeyInfo.X509Data.IssuerSerials, 1)
+	require.Equal(t, "CN=Test CA", sig.KeyInfo.X509Data.IssuerSerials[0].IssuerName)
+	require.Equal(t, "42", sig.KeyInfo.X509Data.IssuerSerials[0].SerialNumber)
+	require.Equal(t, []string{"c2tpYmFzZTY0"}, sig.KeyInfo.X509Data.SKIs)
+	require.Equal(t, []string{"CN=Test"}, sig.KeyInfo.X509Data.SubjectNames)
+	require.Equal(t, []string{"Y3JsYmFzZTY0"}, sig.KeyInfo.X509Data.CRLs)
 }
