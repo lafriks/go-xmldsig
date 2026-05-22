@@ -538,3 +538,66 @@ func TestX509DataExtendedFieldsParsed(t *testing.T) {
 	require.Equal(t, []string{"CN=Test"}, sig.KeyInfo.X509Data.SubjectNames)
 	require.Equal(t, []string{"Y3JsYmFzZTY0"}, sig.KeyInfo.X509Data.CRLs)
 }
+
+func TestSignatureProperties(t *testing.T) {
+	ks := RandomKeyStoreForTest().(*MemoryX509KeyStore)
+	ctx := NewDefaultSigningContext(ks)
+	ctx.IDAttribute = "ID"
+	// SignatureID is intentionally not set — ConstructSignature auto-generates it.
+
+	// Build a timestamp property element.
+	ts := etree.NewElement("Timestamp")
+	ts.CreateAttr("ID", "sp-ts")
+	ts.SetText("2026-05-22T17:38:00Z")
+
+	obj := ctx.CreateSignatureProperties("props-1", "", ts)
+	ctx.Objects = append(ctx.Objects, obj)
+
+	root := &etree.Element{Tag: "Root"}
+	root.CreateAttr("ID", "root-1")
+
+	sig, err := ctx.ConstructSignature(root, []*etree.Element{root}, true)
+	require.NoError(t, err)
+
+	// Signature element must have an auto-generated ID attribute.
+	sigID := sig.SelectAttrValue("ID", "")
+	require.NotEmpty(t, sigID)
+
+	// There must be a Reference to #props-1 in SignedInfo.
+	refs := sig.FindElements("//SignedInfo/Reference")
+	uris := make([]string, 0, len(refs))
+	for _, r := range refs {
+		uris = append(uris, r.SelectAttrValue("URI", ""))
+	}
+	require.Contains(t, uris, "#props-1")
+
+	// The Object must contain SignatureProperties with the right target.
+	spEl := sig.FindElement("//SignatureProperties")
+	require.NotNil(t, spEl)
+	require.Equal(t, "props-1", spEl.SelectAttrValue("ID", ""))
+
+	propEl := sig.FindElement("//SignatureProperty")
+	require.NotNil(t, propEl)
+	require.Equal(t, "#"+sigID, propEl.SelectAttrValue("Target", ""))
+
+	// Full validation round-trip — no SignatureID needed on ctx2 either.
+	cert, err := x509.ParseCertificate(ks.cert)
+	require.NoError(t, err)
+	certStore := MemoryX509CertificateStore{Roots: []*x509.Certificate{cert}}
+	vc := NewTestValidationContext(&certStore, time.Now())
+
+	parent := &etree.Element{Tag: "Root"}
+	parent.CreateAttr("ID", "root-2")
+	ctx2 := NewDefaultSigningContext(ks)
+	ctx2.IDAttribute = "ID"
+	ts2 := etree.NewElement("Timestamp")
+	ts2.SetText("2026-05-22T17:38:00Z")
+	ctx2.Objects = append(ctx2.Objects, ctx2.CreateSignatureProperties("props-2", "", ts2))
+
+	signed, err := ctx2.SignEnveloped(parent)
+	require.NoError(t, err)
+
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.NotEmpty(t, validated)
+}

@@ -324,6 +324,10 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 			if el.SelectAttrValue(ctx.IDAttribute, "") != idVal {
 				referencedEl = findElementByID(el, ctx.IDAttribute, idVal)
 				if referencedEl == nil {
+					// Check if element is in signature element
+					referencedEl = findElementByID(sig.UnderlyingElement(), ctx.IDAttribute, idVal)
+				}
+				if referencedEl == nil {
 					return nil, errors.New("referenced ID element not found: " + ref.URI)
 				}
 			}

@@ -47,6 +47,10 @@ type SigningContext struct {
 	// XPointerIDReferences, when true, emits Reference URIs in XPointer form
 	XPointerIDReferences bool
 
+	// SignatureID, when non-empty, sets the Id attribute on the emitted
+	// <Signature> element.
+	SignatureID string
+
 	// KeyStore is mutually exclusive with signer and certs
 	signer crypto.Signer
 	certs  [][]byte
@@ -195,6 +199,28 @@ func (ctx *SigningContext) signCanonical(canonical []byte) ([]byte, error) {
 	h := ctx.Hash.New()
 	h.Write(canonical)
 	return ctx.signDigest(h.Sum(nil))
+}
+
+// generateID returns a random ID that is a valid XML NCName.
+func generateID() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("id-%x", b), nil
+}
+
+// needsSignatureID reports whether any SignatureProperty in ctx.Objects has an
+// empty Target attribute, meaning an auto-generated Signature ID is required.
+func (ctx *SigningContext) needsSignatureID() bool {
+	for _, obj := range ctx.Objects {
+		for _, sp := range obj.FindElements(".//" + SignaturePropertyTag) {
+			if sp.SelectAttrValue("Target", "") == "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ecdsaDERToXMLDSig converts a DER/ASN.1-encoded ECDSA signature to the fixed-width
@@ -368,16 +394,45 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 			SetText(base64.StdEncoding.EncodeToString(digest))
 	}
 
-	// /SignedInfo/Reference entries for ctx.Objects that have an ID attribute.
+	// /SignedInfo/Reference entries for ctx.Objects that have an ID attribute,
+	// or whose <SignatureProperties> child has an ID attribute.
 	for _, obj := range ctx.Objects {
-		id := obj.SelectAttrValue(ctx.IDAttribute, "")
-		if id == "" {
-			continue
+		var nsWrapper *etree.Element
+		if ctx.Prefix != "" {
+			nsWrapper = etree.NewElement("_ns_")
+			nsWrapper.CreateAttr("xmlns:"+ctx.Prefix, Namespace)
+			nsWrapper.AddChild(obj)
 		}
 
-		objDigest, err := ctx.digest(obj)
-		if err != nil {
-			return nil, err
+		id := obj.SelectAttrValue(ctx.IDAttribute, "")
+		refEl := obj
+		if id == "" {
+			for _, child := range obj.ChildElements() {
+				if child.Tag == SignaturePropertiesTag {
+					if childID := child.SelectAttrValue(ctx.IDAttribute, ""); childID != "" {
+						id = childID
+						refEl = child
+					}
+					break
+				}
+			}
+		}
+
+		var objDigest []byte
+		if id != "" {
+			var err error
+			objDigest, err = ctx.digest(refEl)
+			if nsWrapper != nil {
+				nsWrapper.RemoveChild(obj)
+			}
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if nsWrapper != nil {
+				nsWrapper.RemoveChild(obj)
+			}
+			continue
 		}
 
 		objRef := ctx.createNamespacedElement(signedInfo, ReferenceTag)
@@ -413,6 +468,27 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 		}
 	}
 
+	// If SignatureID is not set but Objects contain <SignatureProperty> elements that
+	// need a Target URI, auto-generate a random ID and back-patch the Target attributes.
+	signatureID := ctx.SignatureID
+	if signatureID == "" && ctx.needsSignatureID() {
+		var err error
+		signatureID, err = generateID()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if signatureID != "" {
+		target := "#" + signatureID
+		for _, obj := range ctx.Objects {
+			for _, sp := range obj.FindElements(".//" + SignaturePropertyTag) {
+				if sp.SelectAttrValue("Target", "") == "" {
+					sp.CreateAttr("Target", target)
+				}
+			}
+		}
+	}
+
 	signedInfo, err := ctx.constructSignedInfo(el, enveloped)
 	if err != nil {
 		return nil, err
@@ -429,6 +505,9 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 	}
 
 	sig.CreateAttr(xmlns, Namespace)
+	if signatureID != "" {
+		sig.CreateAttr(ctx.IDAttribute, signatureID)
+	}
 	sig.AddChild(signedInfo)
 
 	// Default NSContext for the SignedInfo element.
@@ -531,6 +610,59 @@ func (ctx *SigningContext) CreateObject(id, mimeType string, content ...*etree.E
 	for _, c := range content {
 		obj.AddChild(c.Copy())
 	}
+	return obj
+}
+
+// CreateSignatureProperties builds a <ds:Object> containing a
+// <ds:SignatureProperties> element, ready to be appended to ctx.Objects.
+//
+// propertiesID is the Id placed on <SignatureProperties> itself — this is what
+// should appear as the Reference URI in SignedInfo, so it must be non-empty for
+// the properties to be signed. objectID is the Id on the wrapping <Object>;
+// it may be empty if the Object does not need its own independent reference.
+//
+// Each property is an etree element that becomes the inner content of a
+// <ds:SignatureProperty>. The Target attribute of each <SignatureProperty> is
+// set to "#"+ctx.SignatureID if that field is non-empty; otherwise it is left
+// blank and ConstructSignature will fill it in automatically with an
+// auto-generated Signature ID.
+//
+// Typical usage:
+//
+//	ts := etree.NewElement("ts:Timestamp")
+//	ts.SetText("2026-05-22T17:38:00Z")
+//	ctx.Objects = append(ctx.Objects, ctx.CreateSignatureProperties("props-1", "", ts))
+//	signed, err := ctx.SignEnveloped(root)
+func (ctx *SigningContext) CreateSignatureProperties(propertiesID, objectID string, properties ...*etree.Element) *etree.Element {
+	obj := etree.NewElement(ObjectTag)
+	obj.Space = ctx.Prefix
+	if objectID != "" {
+		obj.CreateAttr(ctx.IDAttribute, objectID)
+	}
+
+	sigProps := etree.NewElement(SignaturePropertiesTag)
+	sigProps.Space = ctx.Prefix
+	if propertiesID != "" {
+		sigProps.CreateAttr(ctx.IDAttribute, propertiesID)
+	}
+
+	target := ""
+	if ctx.SignatureID != "" {
+		target = "#" + ctx.SignatureID
+	}
+
+	for _, prop := range properties {
+		sp := etree.NewElement(SignaturePropertyTag)
+		sp.Space = ctx.Prefix
+		sp.CreateAttr("Target", target)
+		if id := prop.SelectAttrValue(ctx.IDAttribute, ""); id != "" {
+			sp.CreateAttr(ctx.IDAttribute, id)
+		}
+		sp.AddChild(prop.Copy())
+		sigProps.AddChild(sp)
+	}
+
+	obj.AddChild(sigProps)
 	return obj
 }
 
