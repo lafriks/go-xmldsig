@@ -27,12 +27,15 @@ type SigningContext struct {
 	// NewSigningContext
 	KeyStore X509KeyStore
 
-	IdAttribute   string
+	IDAttribute   string
 	Prefix        string
 	Canonicalizer Canonicalizer
 
 	// KeyInfo is an optional element to be added instead of the default
 	KeyInfo *etree.Element
+
+	// PSSOptions, when non-nil, enables RSA-PSS signing instead of PKCS#1 v1.5.
+	PSSOptions *rsa.PSSOptions
 
 	// KeyStore is mutually exclusive with signer and certs
 	signer crypto.Signer
@@ -43,7 +46,7 @@ func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
 	return &SigningContext{
 		Hash:          crypto.SHA256,
 		KeyStore:      ks,
-		IdAttribute:   DefaultIdAttr,
+		IDAttribute:   DefaultIdAttr,
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
 	}
@@ -60,7 +63,7 @@ func NewSigningContext(signer crypto.Signer, certs [][]byte) (*SigningContext, e
 	}
 	ctx := &SigningContext{
 		Hash:          crypto.SHA256,
-		IdAttribute:   DefaultIdAttr,
+		IDAttribute:   DefaultIdAttr,
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
 
@@ -123,6 +126,16 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 			return nil, err
 		}
 
+		if ctx.PSSOptions != nil {
+			opts := *ctx.PSSOptions
+			opts.Hash = ctx.Hash
+			rawSignature, err := rsa.SignPSS(rand.Reader, key, ctx.Hash, digest, &opts)
+			if err != nil {
+				return nil, err
+			}
+			return rawSignature, nil
+		}
+
 		rawSignature, err := rsa.SignPKCS1v15(rand.Reader, key, ctx.Hash, digest)
 		if err != nil {
 			return nil, err
@@ -131,7 +144,16 @@ func (ctx *SigningContext) signDigest(digest []byte) ([]byte, error) {
 		return rawSignature, nil
 	}
 
-	rawSignature, err := ctx.signer.Sign(rand.Reader, digest, ctx.Hash)
+	var signerOpts crypto.SignerOpts
+	if ctx.PSSOptions != nil {
+		opts := *ctx.PSSOptions
+		opts.Hash = ctx.Hash
+		signerOpts = &opts
+	} else {
+		signerOpts = ctx.Hash
+	}
+
+	rawSignature, err := ctx.signer.Sign(rand.Reader, digest, signerOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -221,8 +243,36 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		CreateAttr(AlgorithmAttr, string(ctx.Canonicalizer.Algorithm()))
 
 	// /SignedInfo/SignatureMethod
-	ctx.createNamespacedElement(signedInfo, SignatureMethodTag).
-		CreateAttr(AlgorithmAttr, signatureMethodIdentifier)
+	signatureMethodEl := ctx.createNamespacedElement(signedInfo, SignatureMethodTag)
+	signatureMethodEl.CreateAttr(AlgorithmAttr, signatureMethodIdentifier)
+	if ctx.PSSOptions != nil {
+		digestURI := digestAlgorithmIdentifier
+		saltLen := ctx.PSSOptions.SaltLength
+		if saltLen == rsa.PSSSaltLengthAuto || saltLen == rsa.PSSSaltLengthEqualsHash {
+			saltLen = ctx.Hash.Size()
+		}
+
+		// RSAPSSParams namespace
+		const pssNS = "http://www.w3.org/2007/05/xmldsig-more#"
+		pssParams := signatureMethodEl.CreateElement("RSAPSSParams")
+		pssParams.CreateAttr("xmlns", pssNS)
+
+		digestMethodEl := pssParams.CreateElement("DigestMethod")
+		digestMethodEl.CreateAttr("xmlns", Namespace)
+		digestMethodEl.CreateAttr(AlgorithmAttr, digestURI)
+
+		mgfEl := pssParams.CreateElement("MaskGenerationFunction")
+		mgfEl.CreateAttr(AlgorithmAttr, RSAPSS_MGF1URI)
+		mgfDigestEl := mgfEl.CreateElement("DigestMethod")
+		mgfDigestEl.CreateAttr("xmlns", Namespace)
+		mgfDigestEl.CreateAttr(AlgorithmAttr, digestURI)
+
+		saltEl := pssParams.CreateElement("SaltLength")
+		saltEl.SetText(fmt.Sprintf("%d", saltLen))
+
+		trailerEl := pssParams.CreateElement("TrailerField")
+		trailerEl.SetText("1")
+	}
 
 	// /SignedInfo/Reference
 	for _, el := range els {
@@ -259,11 +309,10 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 			return nil, err
 		}
 
-		dataId := el.SelectAttrValue(ctx.IdAttribute, "")
-		if dataId == "" {
+		if id := el.SelectAttrValue(ctx.IDAttribute, ""); id == "" {
 			reference.CreateAttr(URIAttr, "")
 		} else {
-			reference.CreateAttr(URIAttr, "#"+dataId)
+			reference.CreateAttr(URIAttr, "#"+id)
 		}
 
 		// /SignedInfo/Reference/Transforms
@@ -294,7 +343,7 @@ func (ctx *SigningContext) ConstructSignature(parent *etree.Element, el []*etree
 	}
 	if len(el) > 1 || el[0] != parent {
 		for _, e := range el {
-			if e.SelectAttrValue(ctx.IdAttribute, "") == "" {
+			if e.SelectAttrValue(ctx.IDAttribute, "") == "" {
 				return nil, errors.New("all elements to sign must have an ID")
 			}
 		}
@@ -430,12 +479,31 @@ func (ctx *SigningContext) Sign(parent *etree.Element, el ...*etree.Element) (*e
 }
 
 func (ctx *SigningContext) GetSignatureMethodIdentifier() string {
+	if ctx.PSSOptions != nil {
+		return RSAPSSSignatureMethod
+	}
+
 	algo := ctx.getPublicKeyAlgorithm()
 
 	if ident, ok := signatureMethodIdentifiers[algo][ctx.Hash]; ok {
 		return ident
 	}
 	return ""
+}
+
+// SetPSSSignatureMethod configures RSA-PSS signing with the given hash algorithm.
+// It sets PSSOptions with PSSSaltLengthEqualsHash (the RFC 6931 default) and
+// updates Hash to match. Returns an error if the key is not RSA.
+func (ctx *SigningContext) SetPSSSignatureMethod(hash crypto.Hash) error {
+	if algo := ctx.getPublicKeyAlgorithm(); algo != x509.RSA {
+		return fmt.Errorf("RSA-PSS requires an RSA key, got %s", algo)
+	}
+	ctx.Hash = hash
+	ctx.PSSOptions = &rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthEqualsHash,
+		Hash:       hash,
+	}
+	return nil
 }
 
 func (ctx *SigningContext) GetDigestAlgorithmIdentifier() string {

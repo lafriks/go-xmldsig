@@ -99,7 +99,7 @@ func TestSignErrors(t *testing.T) {
 	ctx := &SigningContext{
 		Hash:        crypto.SHA512_256,
 		KeyStore:    randomKeyStore,
-		IdAttribute: DefaultIdAttr,
+		IDAttribute: DefaultIdAttr,
 		Prefix:      DefaultPrefix,
 	}
 
@@ -119,7 +119,7 @@ func TestSignNonDefaultID(t *testing.T) {
 	ctx := &SigningContext{
 		Hash:          crypto.SHA256,
 		KeyStore:      ks,
-		IdAttribute:   "OtherID",
+		IDAttribute:   "OtherID",
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
 	}
@@ -208,7 +208,7 @@ func TestSignAndValidateWithECDSA(t *testing.T) {
 func TestSignRefs(t *testing.T) {
 	randomKeyStore := RandomKeyStoreForTest()
 	ctx := NewDefaultSigningContext(randomKeyStore)
-	ctx.IdAttribute = "u:Id"
+	ctx.IDAttribute = "u:Id"
 	ctx.Prefix = ""
 	ctx.Canonicalizer = MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
 	ctx.SetSignatureMethod(RSASHA1SignatureMethod)
@@ -301,4 +301,71 @@ func TestSignRefs(t *testing.T) {
 	validated, err := valctx.ValidateInsecure(el)
 	require.NoError(t, err)
 	require.Len(t, validated, 2)
+}
+
+func TestSignAndValidateRSAPSSWithKeyStore(t *testing.T) {
+	ks := RandomKeyStoreForTest().(*MemoryX509KeyStore)
+	ctx := NewDefaultSigningContext(ks)
+
+	err := ctx.SetPSSSignatureMethod(crypto.SHA256)
+	require.NoError(t, err)
+
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "pss-test-1")
+
+	signed, err := ctx.SignEnveloped(el)
+	require.NoError(t, err)
+
+	// Verify the SignatureMethod URI is the PSS URI.
+	sigMethodEl := signed.FindElement("//" + SignatureMethodTag)
+	require.NotNil(t, sigMethodEl)
+	require.Equal(t, RSAPSSSignatureMethod, sigMethodEl.SelectAttrValue(AlgorithmAttr, ""))
+
+	// Verify RSAPSSParams child element is present.
+	pssParams := sigMethodEl.FindElement("RSAPSSParams")
+	require.NotNil(t, pssParams)
+
+	cert, err := x509.ParseCertificate(ks.cert)
+	require.NoError(t, err)
+
+	certStore := MemoryX509CertificateStore{Roots: []*x509.Certificate{cert}}
+	vc := NewTestValidationContext(&certStore, time.Now())
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
+func TestSignAndValidateRSAPSSWithSigner(t *testing.T) {
+	ks := RandomKeyStoreForTest().(*MemoryX509KeyStore)
+	ctx, err := NewSigningContext(ks.privateKey, [][]byte{ks.cert})
+	require.NoError(t, err)
+
+	err = ctx.SetPSSSignatureMethod(crypto.SHA384)
+	require.NoError(t, err)
+
+	el := &etree.Element{Tag: "Root"}
+	el.CreateAttr("ID", "pss-test-signer-1")
+
+	signed, err := ctx.SignEnveloped(el)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(ks.cert)
+	require.NoError(t, err)
+
+	certStore := MemoryX509CertificateStore{Roots: []*x509.Certificate{cert}}
+	vc := NewTestValidationContext(&certStore, time.Now())
+	validated, err := vc.Validate(signed)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+}
+
+func TestSetPSSSignatureMethodRejectsNonRSA(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(ecdsaCert), []byte(ecdsaKey))
+	require.NoError(t, err)
+
+	ctx, err := NewSigningContext(cert.PrivateKey.(crypto.Signer), cert.Certificate)
+	require.NoError(t, err)
+
+	err = ctx.SetPSSSignatureMethod(crypto.SHA256)
+	require.Error(t, err)
 }

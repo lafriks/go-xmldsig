@@ -40,9 +40,26 @@ type CanonicalizationMethod struct {
 	Algorithm string   `xml:"Algorithm,attr"`
 }
 
+// MGFAlgorithm represents the MaskGenerationFunction element within RSAPSSParams.
+type MGFAlgorithm struct {
+	Algorithm    string       `xml:"Algorithm,attr"`
+	DigestMethod DigestMethod `xml:"DigestMethod"`
+}
+
+// RSAPSSParams holds the RSA-PSS parameters carried as child elements of
+// <SignatureMethod> per RFC 6931 §2.3.9.
+type RSAPSSParams struct {
+	XMLName                xml.Name     `xml:"http://www.w3.org/2007/05/xmldsig-more# RSAPSSParams"`
+	DigestMethod           DigestMethod `xml:"DigestMethod"`
+	MaskGenerationFunction MGFAlgorithm `xml:"MaskGenerationFunction"`
+	SaltLength             int          `xml:"SaltLength"`
+	TrailerField           int          `xml:"TrailerField"`
+}
+
 type SignatureMethod struct {
-	XMLName   xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# SignatureMethod"`
-	Algorithm string   `xml:"Algorithm,attr"`
+	XMLName      xml.Name      `xml:"http://www.w3.org/2000/09/xmldsig# SignatureMethod"`
+	Algorithm    string        `xml:"Algorithm,attr"`
+	RSAPSSParams *RSAPSSParams `xml:"RSAPSSParams"`
 }
 
 type SignedInfo struct {

@@ -46,10 +46,14 @@ const (
 	RSASHA256SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
 	RSASHA384SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
 	RSASHA512SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
+	RSAPSSSignatureMethod      = "http://www.w3.org/2007/05/xmldsig-more#rsa-pss"
 	ECDSASHA1SignatureMethod   = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha1"
 	ECDSASHA256SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"
 	ECDSASHA384SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384"
 	ECDSASHA512SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512"
+
+	// MGF1 algorythm used within RSAPSSParams
+	RSAPSS_MGF1URI = "http://www.w3.org/2007/05/xmldsig-more#MGF1"
 )
 
 // Well-known signature algorithms

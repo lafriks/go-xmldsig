@@ -159,5 +159,4 @@ func TestC14N10RecCanonicalizerWithNamespaceInheritance(t *testing.T) {
 	canonicalized, err := canonicalizer.Canonicalize(childElement)
 	require.NoError(t, err)
 	require.Equal(t, strings.TrimSpace(expected), strings.TrimSpace(string(canonicalized)))
-
 }

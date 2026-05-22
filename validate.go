@@ -2,7 +2,9 @@ package xmldsig
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/xml"
@@ -217,21 +219,46 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	}
 
 	// Verify the signature against the canonical bytes.
-	algo, ok := x509SignatureAlgorithmByIdentifier[signedInfo.SignatureMethod.Algorithm]
-	if !ok {
-		return nil, errors.New("unknown signature method: " + signedInfo.SignatureMethod.Algorithm)
-	}
-	sigBytes := decodedSignature
-	// XMLDSig stores ECDSA signatures as r||s (RFC 4050 §3.3), but Go's
-	// x509.Certificate.CheckSignature expects DER/ASN.1. Convert if needed.
-	if ecdsaPub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
-		sigBytes, err = ecdsaXMLDSigToDER(decodedSignature, ecdsaPub.Curve)
-		if err != nil {
+	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod {
+		// RSA-PSS: parse hash from RSAPSSParams (default SHA-256 per RFC 6931).
+		hashAlgo := digestAlgorithmsByIdentifier[digestAlgorithmIdentifiers[crypto.SHA256]]
+		if signedInfo.SignatureMethod.RSAPSSParams != nil {
+			if h, ok := digestAlgorithmsByIdentifier[signedInfo.SignatureMethod.RSAPSSParams.DigestMethod.Algorithm]; ok {
+				hashAlgo = h
+			}
+		}
+
+		rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, errors.New("RSA-PSS signature requires an RSA public key")
+		}
+
+		h := hashAlgo.New()
+		h.Write(canonicalBytes)
+		hashed := h.Sum(nil)
+
+		if err := rsa.VerifyPSS(rsaPub, hashAlgo, hashed, decodedSignature, &rsa.PSSOptions{
+			SaltLength: rsa.PSSSaltLengthAuto,
+		}); err != nil {
 			return nil, err
 		}
-	}
-	if err := cert.CheckSignature(algo, canonicalBytes, sigBytes); err != nil {
-		return nil, err
+	} else {
+		algo, ok := x509SignatureAlgorithmByIdentifier[signedInfo.SignatureMethod.Algorithm]
+		if !ok {
+			return nil, errors.New("unknown signature method: " + signedInfo.SignatureMethod.Algorithm)
+		}
+		sigBytes := decodedSignature
+		// XMLDSig stores ECDSA signatures as r||s (RFC 4050 §3.3), but Go's
+		// x509.Certificate.CheckSignature expects DER/ASN.1. Convert if needed.
+		if ecdsaPub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
+			sigBytes, err = ecdsaXMLDSigToDER(decodedSignature, ecdsaPub.Curve)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := cert.CheckSignature(algo, canonicalBytes, sigBytes); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(signedInfo.References) == 0 {
