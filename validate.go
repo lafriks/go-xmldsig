@@ -153,6 +153,9 @@ func (ctx *ValidationContext) transform(
 		case CanonicalXML10WithCommentsAlgorithmID:
 			canonicalizer = MakeC14N10WithCommentsCanonicalizer()
 
+		case Base64TransformAlgorithmID:
+			canonicalizer = MakeBase64Canonicalizer()
+
 		default:
 			return nil, errors.New("unknown transform algorithm: " + algo)
 		}

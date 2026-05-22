@@ -466,6 +466,44 @@ lIpzZeamtJCo/jcdeqYHi3ru+uHOBe91GFPtoDGCVuk7YvzlXKMdgyDx82+kRSnLWYMxaI2zleFY
 nXHhoQk3K5iSdQT/gFgKJk89</dsx:X509Certificate></dsx:X509Data></dsx:KeyInfo><dsx:SignedInfo xmlns:ds="" xmlns:dsx="http://www.w3.org/2000/09/xmldsig#"><dsx:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><dsx:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><dsx:Reference URI="#id149481635007855341483658231"><dsx:Transforms><dsx:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><dsx:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="xs"/></dsx:Transform></dsx:Transforms><dsx:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><dsx:DigestValue>JaSnCMsKnmGg4Ew3yXuUdRPCmlzJngSWW1RZYH15Exk=</dsx:DigestValue></dsx:Reference></dsx:SignedInfo><ds:SignedInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><ds:Reference URI="#id149481635007855341483658231"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="xs"/></ds:Transform></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>nrIzAXSDsFwgvCm+ulbqfqZylzPxCBof6FYDcCEPdCQ=</ds:DigestValue></ds:Reference></ds:SignedInfo></dsx:Signature><saml2:Subject xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"><saml2:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">todd@okta.com</saml2:NameID><saml2:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><saml2:SubjectConfirmationData InResponseTo="_ffea96b1-44a2-4a86-9683-45807984ab5b" NotOnOrAfter="2020-09-01T17:56:12.176Z" Recipient="https://dev.sudo.wtf:8443/v1/_saml_callback"/></saml2:SubjectConfirmation></saml2:Subject><saml2:Conditions NotBefore="2020-09-01T17:46:12.176Z" NotOnOrAfter="2020-09-01T17:56:12.176Z" xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"><saml2:AudienceRestriction><saml2:Audience>https://dev.sudo.wtf:8443/v1/teams/asa</saml2:Audience></saml2:AudienceRestriction></saml2:Conditions><saml2:AuthnStatement AuthnInstant="2020-09-01T17:25:30.851Z" SessionIndex="_ffea96b1-44a2-4a86-9683-45807984ab5b" xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"><saml2:AuthnContext><saml2:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml2:AuthnContextClassRef></saml2:AuthnContext></saml2:AuthnStatement><saml2:AttributeStatement xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"><saml2:Attribute Name="FirstName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"><saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">Phoebe</saml2:AttributeValue></saml2:Attribute><saml2:Attribute Name="LastName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"><saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">Yu</saml2:AttributeValue></saml2:Attribute><saml2:Attribute Name="Email" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"><saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">phoebe.yu@okta.com</saml2:AttributeValue></saml2:Attribute><saml2:Attribute Name="Login" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"><saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">phoebe.yu@okta.com</saml2:AttributeValue></saml2:Attribute><saml2:Attribute Name="SSHUserName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"><saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string"/></saml2:Attribute></saml2:AttributeStatement></saml2:Assertion></saml2p:Response>`
 )
 
+func TestBase64Canonicalizer(t *testing.T) {
+	payload := []byte("hello xmldsig")
+	encoded := base64.StdEncoding.EncodeToString(payload)
+
+	// Embed whitespace (line breaks) as real documents do.
+	encodedWithWS := encoded[:8] + "\n  " + encoded[8:]
+
+	for _, text := range []string{encoded, encodedWithWS} {
+		el := &etree.Element{Tag: "Data"}
+		el.SetText(text)
+
+		got, err := MakeBase64Canonicalizer().Canonicalize(el)
+		require.NoError(t, err)
+		require.Equal(t, payload, got)
+	}
+}
+
+func TestBase64TransformDispatch(t *testing.T) {
+	doc := etree.NewDocument()
+	require.NoError(t, doc.ReadFromBytes([]byte(rawResponse)))
+
+	vc := NewTestValidationContext(nil, time.Unix(1623328519, 0))
+
+	el := doc.Root()
+	sig, err := vc.findSignature(el)
+	require.NoError(t, err)
+
+	// Inject a Base64 transform into the first reference and verify dispatch.
+	ref := &sig.SignedInfo.References[0]
+	ref.Transforms.Transforms = append(ref.Transforms.Transforms, Transform{
+		Algorithm: Base64TransformAlgorithmID.String(),
+	})
+
+	canonicalizer, err := vc.transform(el, sig, ref)
+	require.NoError(t, err)
+	require.IsType(t, &base64Canonicalizer{}, canonicalizer)
+}
+
 func TestValidateECDSA(t *testing.T) {
 	doc := etree.NewDocument()
 	err := doc.ReadFromBytes([]byte(ecdsaResponse))

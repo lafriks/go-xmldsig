@@ -1,6 +1,7 @@
 package xmldsig
 
 import (
+	"encoding/base64"
 	"maps"
 	"sort"
 
@@ -13,6 +14,24 @@ import (
 type Canonicalizer interface {
 	Canonicalize(el *etree.Element) ([]byte, error)
 	Algorithm() AlgorithmID
+}
+
+type base64Canonicalizer struct{}
+
+// MakeBase64Canonicalizer constructs a transform that strips whitespace from
+// an element's text content and base64-decodes it, per XMLDSig Core §6.6.2.
+// Use it when a Reference points to an element whose text is base64-encoded
+// binary data (e.g. X509Certificate, BinarySecurityToken).
+func MakeBase64Canonicalizer() Canonicalizer {
+	return &base64Canonicalizer{}
+}
+
+func (c *base64Canonicalizer) Algorithm() AlgorithmID {
+	return Base64TransformAlgorithmID
+}
+
+func (c *base64Canonicalizer) Canonicalize(el *etree.Element) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(whiteSpace.ReplaceAllString(el.Text(), ""))
 }
 
 type NullCanonicalizer struct{}
