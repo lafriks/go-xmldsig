@@ -419,12 +419,14 @@ func (ctx *SigningContext) constructSignedInfo(els []*etree.Element, enveloped b
 		id := obj.SelectAttrValue(ctx.IDAttribute, "")
 		refEl := obj
 		if id == "" {
-			for _, child := range obj.ChildElements() {
-				if child.Tag == SignaturePropertiesTag {
-					if childID := child.SelectAttrValue(ctx.IDAttribute, ""); childID != "" {
-						id = childID
-						refEl = child
-					}
+			// Search all descendants for the first element that carries an ID
+			// attribute. This handles both <ds:SignatureProperties> (XMLDSig §6.7)
+			// and XAdES-style objects where the referenced element
+			// (e.g. <xades:SignedProperties>) is nested deeper inside the Object.
+			for _, desc := range obj.FindElements(".//*") {
+				if childID := desc.SelectAttrValue(ctx.IDAttribute, ""); childID != "" {
+					id = childID
+					refEl = desc
 					break
 				}
 			}
