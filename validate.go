@@ -38,7 +38,9 @@ type ValidationContext struct {
 	// verifying the signing certificate against the trust roots. Roots and
 	// CurrentTime are always set by the library; all other fields (KeyUsages,
 	// DNSName, etc.) are taken from this value. When nil, KeyUsages defaults
-	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}.
+	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}. Intermediates, when left
+	// nil, is populated from any certificates the signature carries in
+	// KeyInfo beyond the first (leaf) one.
 	CertVerifyOptions *x509.VerifyOptions
 	// MaxTraversalElements bounds the depth-first search for the Signature
 	// element, as a DoS guard against adversarially large documents. 0 keeps
@@ -593,6 +595,30 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	return sig, nil
 }
 
+// keyInfoIntermediates builds a certificate pool from any certificates the
+// signature carries in KeyInfo beyond the first (leaf) one, so a signature
+// that ships its own chain can be verified against a store holding only the
+// root. Returns nil when the signature carries no intermediates.
+func keyInfoIntermediates(sig *Signature) (*x509.CertPool, error) {
+	if sig.KeyInfo == nil || sig.KeyInfo.X509Data == nil || len(sig.KeyInfo.X509Data.X509Certificates) < 2 {
+		return nil, nil
+	}
+
+	pool := x509.NewCertPool()
+	for _, c := range sig.KeyInfo.X509Data.X509Certificates[1:] {
+		data, err := base64.StdEncoding.DecodeString(whiteSpace.ReplaceAllString(c.Data, ""))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode intermediate certificate: %w", err)
+		}
+		cert, err := x509.ParseCertificate(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse intermediate certificate: %w", err)
+		}
+		pool.AddCert(cert)
+	}
+	return pool, nil
+}
+
 func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bool) (*x509.Certificate, error) {
 	now := ctx.Clock.Now()
 
@@ -650,6 +676,12 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 		}
 		opts.Roots = pool
 		opts.CurrentTime = now
+		if opts.Intermediates == nil {
+			opts.Intermediates, err = keyInfoIntermediates(sig)
+			if err != nil {
+				return nil, err
+			}
+		}
 
 		_, err := cert.Verify(opts)
 		if err != nil {
