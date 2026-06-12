@@ -38,7 +38,9 @@ type ValidationContext struct {
 	// verifying the signing certificate against the trust roots. Roots and
 	// CurrentTime are always set by the library; all other fields (KeyUsages,
 	// DNSName, etc.) are taken from this value. When nil, KeyUsages defaults
-	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}.
+	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}. Intermediates, when left
+	// nil, is populated from any certificates the signature carries in
+	// KeyInfo beyond the first (leaf) one.
 	CertVerifyOptions *x509.VerifyOptions
 	// MaxTraversalElements bounds the depth-first SEARCH for the Signature
 	// element (a DoS guard against adversarially deep/wide documents; it does
@@ -486,14 +488,24 @@ func (vctx *ValidationContext) processCandidate(ctx etreeutils.NSContext, signat
 				return errors.New("missing CanonicalizationMethod on Signature")
 			}
 
-			c14NAlgorithm := c14NMethod.SelectAttrValue(AlgorithmAttr, "")
+	// The children-first scan and the deep search below may both visit the
+	// same Signature; canonicalizing its SignedInfo twice would corrupt it.
+	processed := map[*etree.Element]bool{}
 
-			var canonicalSignedInfo *etree.Element
+	handle := func(ctx etreeutils.NSContext, signatureEl *etree.Element) error {
+		if processed[signatureEl] {
+			return nil
+		}
+		processed[signatureEl] = true
 
-			switch alg := AlgorithmID(c14NAlgorithm); alg {
-			case CanonicalXML10ExclusiveAlgorithmID, CanonicalXML10ExclusiveWithCommentsAlgorithmID:
-				detachedSignedInfo := signedInfo.Copy()
-				err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmID)
+		err := validateShape(signatureEl)
+		if err != nil {
+			return err
+		}
+		found := false
+		err = etreeutils.NSFindChildrenIterateCtx(ctx, signatureEl, Namespace, SignedInfoTag,
+			func(ctx etreeutils.NSContext, signedInfo *etree.Element) error {
+				c14NMethod, err := etreeutils.NSFindOneChildCtx(ctx, signedInfo, Namespace, CanonicalizationMethodTag)
 				if err != nil {
 					return err
 				}
@@ -597,11 +609,12 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		return nil
 	}
 
-	// Fast path: scan the root's direct children under an UNLIMITED context —
-	// this scan (and preparing a root-level signature) is deliberately
-	// independent of MaxTraversalElements, so the common enveloped shape works
-	// regardless of document size or a small configured budget.
-	rootCtx, err := etreeutils.NewNSContextWithLimit(0).SubContext(root)
+	// Enveloped signatures are direct children of the element they sign in
+	// XMLDSig practice (profiles such as ETSI TS 119 612 trusted lists mandate
+	// it), so scan the root's immediate children first, without a traversal
+	// budget: a root-level signature is found no matter how large the
+	// document is.
+	err := etreeutils.NSFindChildrenIterateCtx(etreeutils.NewNSContextWithLimit(-1), root, Namespace, SignatureTag, handle)
 	if err != nil {
 		return nil, err
 	}
@@ -641,6 +654,18 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		}
 	}
 
+	// Budgeted depth-first search for signatures that are not direct children
+	// of the root.
+	if sig == nil {
+		nsctx := etreeutils.NewDefaultNSContext()
+		if ctx.MaxTraversalElements != 0 {
+			nsctx = etreeutils.NewNSContextWithLimit(ctx.MaxTraversalElements)
+		}
+		if err := etreeutils.NSFindIterateCtx(nsctx, root, Namespace, SignatureTag, handle); err != nil {
+			return nil, err
+		}
+	}
+
 	if idAttr == "" && sig == nil {
 		// If no signature references the top level element, use the last signature
 		// as it could be partially signed document.
@@ -652,6 +677,30 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	}
 
 	return sig, nil
+}
+
+// keyInfoIntermediates builds a certificate pool from any certificates the
+// signature carries in KeyInfo beyond the first (leaf) one, so a signature
+// that ships its own chain can be verified against a store holding only the
+// root. Returns nil when the signature carries no intermediates.
+func keyInfoIntermediates(sig *Signature) (*x509.CertPool, error) {
+	if sig.KeyInfo == nil || sig.KeyInfo.X509Data == nil || len(sig.KeyInfo.X509Data.X509Certificates) < 2 {
+		return nil, nil
+	}
+
+	pool := x509.NewCertPool()
+	for _, c := range sig.KeyInfo.X509Data.X509Certificates[1:] {
+		data, err := base64.StdEncoding.DecodeString(whiteSpace.ReplaceAllString(c.Data, ""))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode intermediate certificate: %w", err)
+		}
+		cert, err := x509.ParseCertificate(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse intermediate certificate: %w", err)
+		}
+		pool.AddCert(cert)
+	}
+	return pool, nil
 }
 
 func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bool) (*x509.Certificate, error) {
@@ -711,6 +760,12 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 		}
 		opts.Roots = pool
 		opts.CurrentTime = now
+		if opts.Intermediates == nil {
+			opts.Intermediates, err = keyInfoIntermediates(sig)
+			if err != nil {
+				return nil, err
+			}
+		}
 
 		_, err := cert.Verify(opts)
 		if err != nil {
