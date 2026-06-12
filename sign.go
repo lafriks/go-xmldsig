@@ -694,7 +694,7 @@ func (ctx *SigningContext) SignEnveloped(parent *etree.Element, el ...*etree.Ele
 	}
 
 	ret := parent.Copy()
-	ret.Child = append(ret.Child, sig)
+	ret.AddChild(sig)
 
 	return ret, nil
 }
@@ -710,7 +710,7 @@ func (ctx *SigningContext) Sign(parent *etree.Element, el ...*etree.Element) (*e
 	}
 
 	ret := parent.Copy()
-	ret.Child = append(ret.Child, sig)
+	ret.AddChild(sig)
 
 	return ret, nil
 }

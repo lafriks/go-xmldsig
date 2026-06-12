@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"sort"
 
 	"github.com/beevik/etree"
@@ -28,6 +29,21 @@ func NewDefaultNSContext() NSContext {
 		},
 		limit: &defaultLimit,
 	}
+}
+
+// NewNSContextWithLimit returns a default NSContext whose element-traversal
+// budget is limit elements instead of the default 1000. A limit <= 0 disables
+// the guard — it exists to bound work on untrusted documents (DoS), so only
+// do that for trusted or size-capped inputs.
+func NewNSContextWithLimit(limit int) NSContext {
+	if limit <= 0 {
+		limit = math.MaxInt
+	}
+
+	nsctx := NewDefaultNSContext()
+	nsctx.limit = &limit
+
+	return nsctx
 }
 
 var (

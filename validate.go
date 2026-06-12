@@ -40,6 +40,15 @@ type ValidationContext struct {
 	// DNSName, etc.) are taken from this value. When nil, KeyUsages defaults
 	// to []x509.ExtKeyUsage{x509.ExtKeyUsageAny}.
 	CertVerifyOptions *x509.VerifyOptions
+	// MaxTraversalElements bounds the depth-first search for the Signature
+	// element, as a DoS guard against adversarially large documents. 0 keeps
+	// the default budget of 1000 visited elements; a negative value disables
+	// the limit. Signatures that are direct children of the validated element
+	// (the common enveloped shape) are found by a children-first scan that
+	// does not consume this budget. Note that the deep search's budget also
+	// covers reading a found signature's immediate children — size custom
+	// budgets accordingly.
+	MaxTraversalElements int
 }
 
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
@@ -92,7 +101,7 @@ func removeElementAtPath(el *etree.Element, path []int) bool {
 	}
 
 	if len(path) == 1 {
-		el.RemoveChild(childElement)
+		el.RemoveChildAt(path[0])
 		return true
 	}
 
@@ -451,8 +460,16 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	var sig *Signature
 	var lsig *Signature
 
-	// Traverse the tree looking for a Signature element
-	err := etreeutils.NSFindIterate(root, Namespace, SignatureTag, func(ctx etreeutils.NSContext, signatureEl *etree.Element) error {
+	// The children-first scan and the deep search below may both visit the
+	// same Signature; canonicalizing its SignedInfo twice would corrupt it.
+	processed := map[*etree.Element]bool{}
+
+	handle := func(ctx etreeutils.NSContext, signatureEl *etree.Element) error {
+		if processed[signatureEl] {
+			return nil
+		}
+		processed[signatureEl] = true
+
 		err := validateShape(signatureEl)
 		if err != nil {
 			return err
@@ -539,9 +556,28 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		}
 
 		return nil
-	})
+	}
+
+	// Enveloped signatures are direct children of the element they sign in
+	// XMLDSig practice (profiles such as ETSI TS 119 612 trusted lists mandate
+	// it), so scan the root's immediate children first, without a traversal
+	// budget: a root-level signature is found no matter how large the
+	// document is.
+	err := etreeutils.NSFindChildrenIterateCtx(etreeutils.NewNSContextWithLimit(-1), root, Namespace, SignatureTag, handle)
 	if err != nil {
 		return nil, err
+	}
+
+	// Budgeted depth-first search for signatures that are not direct children
+	// of the root.
+	if sig == nil {
+		nsctx := etreeutils.NewDefaultNSContext()
+		if ctx.MaxTraversalElements != 0 {
+			nsctx = etreeutils.NewNSContextWithLimit(ctx.MaxTraversalElements)
+		}
+		if err := etreeutils.NSFindIterateCtx(nsctx, root, Namespace, SignatureTag, handle); err != nil {
+			return nil, err
+		}
 	}
 
 	if idAttr == "" && sig == nil {
