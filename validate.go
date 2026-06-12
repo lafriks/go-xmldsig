@@ -101,9 +101,6 @@ func removeElementAtPath(el *etree.Element, path []int) bool {
 	}
 
 	if len(path) == 1 {
-		// Remove by slot rather than RemoveChild(childElement): etree resolves
-		// RemoveChild via the token's cached index, which is stale in trees
-		// whose Child slice was appended to directly.
 		el.RemoveChildAt(path[0])
 		return true
 	}
