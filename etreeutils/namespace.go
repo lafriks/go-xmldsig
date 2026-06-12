@@ -41,6 +41,7 @@ func NewNSContextWithLimit(limit int) NSContext {
 		return nsctx
 	}
 	nsctx.limit = &limit
+
 	return nsctx
 }
 
