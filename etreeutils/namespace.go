@@ -66,8 +66,13 @@ type NSContext struct {
 	limit    *int
 }
 
-// CheckLimit checks the traversal limit before calling the handler function
+// CheckLimit checks the traversal limit before calling the handler function.
+// A zero-value NSContext (e.g. EmptyNSContext) carries no limit pointer and is
+// treated as unlimited instead of dereferencing nil.
 func (ctx NSContext) CheckLimit() error {
+	if ctx.limit == nil {
+		return nil
+	}
 	if *ctx.limit <= 0 {
 		return ErrTraversalLimit
 	}
