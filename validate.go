@@ -88,9 +88,6 @@ func mapPathToElement(tree, el *etree.Element) []int {
 	return nil
 }
 
-// elementAtPath resolves a child-token index path (as produced by
-// mapPathToElement) inside el, returning nil when the path does not resolve
-// to an element.
 func elementAtPath(el *etree.Element, path []int) *etree.Element {
 	cur := el
 	for _, i := range path {
