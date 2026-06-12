@@ -100,7 +100,10 @@ func removeElementAtPath(el *etree.Element, path []int) bool {
 	}
 
 	if len(path) == 1 {
-		el.RemoveChild(childElement)
+		// Remove by slot rather than RemoveChild(childElement): etree resolves
+		// RemoveChild via the token's cached index, which is stale in trees
+		// whose Child slice was appended to directly.
+		el.RemoveChildAt(path[0])
 		return true
 	}
 
@@ -593,8 +596,11 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		return nil
 	}
 
-	// Fast path: scan the root's direct children.
-	rootCtx, err := ctx.searchNSContext().SubContext(root)
+	// Fast path: scan the root's direct children. Uses an unlimited context —
+	// this scan is not a traversal, and processCandidate's iteration over the
+	// already-located Signature's children must not consume (or be blocked by)
+	// the deep-search budget.
+	rootCtx, err := etreeutils.NewNSContextWithLimit(0).SubContext(root)
 	if err != nil {
 		return nil, err
 	}
