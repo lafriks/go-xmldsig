@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"sort"
 
 	"github.com/beevik/etree"
@@ -31,15 +32,14 @@ func NewDefaultNSContext() NSContext {
 }
 
 // NewNSContextWithLimit returns a default NSContext whose element-traversal
-// budget is limit elements instead of the default 1000. A limit <= 0 means
-// unlimited traversal — the guard exists to bound work on untrusted documents
-// (DoS), so only disable it for trusted or size-capped inputs.
+// budget is limit elements instead of the default 1000. A limit <= 0 disables
+// the guard — it exists to bound work on untrusted documents (DoS), so only
+// do that for trusted or size-capped inputs.
 func NewNSContextWithLimit(limit int) NSContext {
-	nsctx := NewDefaultNSContext()
 	if limit <= 0 {
-		nsctx.limit = nil
-		return nsctx
+		limit = math.MaxInt
 	}
+	nsctx := NewDefaultNSContext()
 	nsctx.limit = &limit
 
 	return nsctx
@@ -67,14 +67,8 @@ type NSContext struct {
 	limit    *int
 }
 
-// CheckLimit checks the traversal limit before calling the handler function.
-// A nil limit means unlimited traversal (see NewNSContextWithLimit); this also
-// makes the zero-value NSContext (e.g. EmptyNSContext) safe instead of
-// dereferencing nil.
+// CheckLimit checks the traversal limit before calling the handler function
 func (ctx NSContext) CheckLimit() error {
-	if ctx.limit == nil {
-		return nil
-	}
 	if *ctx.limit <= 0 {
 		return ErrTraversalLimit
 	}
