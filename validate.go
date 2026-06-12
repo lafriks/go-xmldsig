@@ -87,6 +87,21 @@ func mapPathToElement(tree, el *etree.Element) []int {
 	return nil
 }
 
+func elementAtPath(el *etree.Element, path []int) *etree.Element {
+	cur := el
+	for _, i := range path {
+		if i < 0 || i >= len(cur.Child) {
+			return nil
+		}
+		next, ok := cur.Child[i].(*etree.Element)
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
 func removeElementAtPath(el *etree.Element, path []int) bool {
 	if len(path) == 0 {
 		return false
@@ -450,19 +465,6 @@ func validateShape(signatureEl *etree.Element) error {
 	return nil
 }
 
-// searchNSContext returns the NSContext used for the deep Signature search,
-// honoring MaxTraversalElements (0 = default budget, negative = unlimited).
-func (ctx *ValidationContext) searchNSContext() etreeutils.NSContext {
-	switch {
-	case ctx.MaxTraversalElements < 0:
-		return etreeutils.NewNSContextWithLimit(0) // unlimited
-	case ctx.MaxTraversalElements > 0:
-		return etreeutils.NewNSContextWithLimit(ctx.MaxTraversalElements)
-	default:
-		return etreeutils.NewDefaultNSContext()
-	}
-}
-
 // processCandidate validates the shape of a candidate Signature element,
 // replaces its SignedInfo with the canonicalized form (in place, exactly as
 // the search-based flow always has), unmarshals it, and reports whether it
@@ -629,7 +631,11 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	// Budgeted depth-first fallback for signatures that are not direct
 	// children of the root.
 	if sig == nil {
-		err := etreeutils.NSFindIterateCtx(ctx.searchNSContext(), root, Namespace, SignatureTag, handle)
+		nsctx := etreeutils.NewDefaultNSContext()
+		if ctx.MaxTraversalElements != 0 {
+			nsctx = etreeutils.NewNSContextWithLimit(ctx.MaxTraversalElements)
+		}
+		err := etreeutils.NSFindIterateCtx(nsctx, root, Namespace, SignatureTag, handle)
 		if err != nil && err != etreeutils.ErrTraversalHalted {
 			return nil, err
 		}
@@ -738,24 +744,6 @@ func (ctx *ValidationContext) Validate(el *etree.Element) ([]*etree.Element, err
 	}
 
 	return ctx.validateSignature(el, sig, cert)
-}
-
-// elementAtPath resolves a child-token index path (as produced by
-// mapPathToElement) inside el, returning nil when the path does not resolve to
-// an element.
-func elementAtPath(el *etree.Element, path []int) *etree.Element {
-	cur := el
-	for _, i := range path {
-		if i < 0 || i >= len(cur.Child) {
-			return nil
-		}
-		next, ok := cur.Child[i].(*etree.Element)
-		if !ok {
-			return nil
-		}
-		cur = next
-	}
-	return cur
 }
 
 // ValidateSignature is Validate for callers that have already located the
