@@ -39,6 +39,7 @@ func NewNSContextWithLimit(limit int) NSContext {
 	if limit <= 0 {
 		limit = math.MaxInt
 	}
+
 	nsctx := NewDefaultNSContext()
 	nsctx.limit = &limit
 
