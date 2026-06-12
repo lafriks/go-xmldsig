@@ -88,6 +88,21 @@ func mapPathToElement(tree, el *etree.Element) []int {
 	return nil
 }
 
+func elementAtPath(el *etree.Element, path []int) *etree.Element {
+	cur := el
+	for _, i := range path {
+		if i < 0 || i >= len(cur.Child) {
+			return nil
+		}
+		next, ok := cur.Child[i].(*etree.Element)
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
 func removeElementAtPath(el *etree.Element, path []int) bool {
 	if len(path) == 0 {
 		return false
@@ -451,6 +466,97 @@ func validateShape(signatureEl *etree.Element) error {
 	return nil
 }
 
+// prepareSignature validates the shape of signatureEl, replaces its SignedInfo
+// child with the canonicalized form (an in-place mutation of signatureEl), and
+// unmarshals the element into a structured Signature. The returned bool
+// reports whether the signature carries at least one reference to the
+// top-level element: URI "", "#xpointer(/)", or an ID matching idAttr.
+func prepareSignature(nsCtx etreeutils.NSContext, signatureEl *etree.Element, idAttr string) (*Signature, bool, error) {
+	err := validateShape(signatureEl)
+	if err != nil {
+		return nil, false, err
+	}
+	found := false
+	err = etreeutils.NSFindChildrenIterateCtx(nsCtx, signatureEl, Namespace, SignedInfoTag,
+		func(ctx etreeutils.NSContext, signedInfo *etree.Element) error {
+			c14NMethod, err := etreeutils.NSFindOneChildCtx(ctx, signedInfo, Namespace, CanonicalizationMethodTag)
+			if err != nil {
+				return err
+			}
+
+			if c14NMethod == nil {
+				return errors.New("missing CanonicalizationMethod on Signature")
+			}
+
+			c14NAlgorithm := c14NMethod.SelectAttrValue(AlgorithmAttr, "")
+
+			var canonicalSignedInfo *etree.Element
+
+			switch alg := AlgorithmID(c14NAlgorithm); alg {
+			case CanonicalXML10ExclusiveAlgorithmID, CanonicalXML10ExclusiveWithCommentsAlgorithmID:
+				detachedSignedInfo := signedInfo.Copy()
+				err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmID)
+				if err != nil {
+					return err
+				}
+
+				// NOTE: TransformExcC14n transforms the element in-place,
+				// while canonicalPrep isn't meant to. Once we standardize
+				// this behavior we can drop this, as well as the adding and
+				// removing of elements below.
+				canonicalSignedInfo = detachedSignedInfo
+
+			case CanonicalXML11AlgorithmID, CanonicalXML11WithCommentsAlgorithmID:
+				detachedSignedInfo, err := etreeutils.NSDetatch(ctx, signedInfo)
+				if err != nil {
+					return err
+				}
+				canonicalSignedInfo = canonicalPrep(detachedSignedInfo, true, alg == CanonicalXML11WithCommentsAlgorithmID)
+
+			case CanonicalXML10AlgorithmID, CanonicalXML10WithCommentsAlgorithmID:
+				canonicalSignedInfo = canonicalPrep(signedInfo, true, alg == CanonicalXML10WithCommentsAlgorithmID)
+
+			default:
+				return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
+			}
+
+			signatureEl.InsertChildAt(signedInfo.Index(), canonicalSignedInfo)
+			signatureEl.RemoveChild(signedInfo)
+
+			found = true
+
+			return etreeutils.ErrTraversalHalted
+		})
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !found {
+		return nil, false, errors.New("missing SignedInfo")
+	}
+
+	// Unmarshal the signature into a structured Signature type
+	sig := &Signature{}
+	err = etreeutils.NSUnmarshalElement(nsCtx, signatureEl, sig)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Traverse references in the signature to determine whether it has at least
+	// one reference to the top level element.
+	for _, ref := range sig.SignedInfo.References {
+		idVal, isRoot, ok := referenceIDAttr(ref.URI)
+		if !ok {
+			continue
+		}
+		if isRoot || idVal == idAttr {
+			return sig, true, nil
+		}
+	}
+
+	return sig, false, nil
+}
+
 // findSignature searches for a Signature element referencing the passed root element.
 func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, error) {
 	idAttrEl := root.SelectAttr(ctx.IDAttribute)
@@ -472,89 +578,18 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 		}
 		processed[signatureEl] = true
 
-		err := validateShape(signatureEl)
-		if err != nil {
-			return err
-		}
-		found := false
-		err = etreeutils.NSFindChildrenIterateCtx(ctx, signatureEl, Namespace, SignedInfoTag,
-			func(ctx etreeutils.NSContext, signedInfo *etree.Element) error {
-				c14NMethod, err := etreeutils.NSFindOneChildCtx(ctx, signedInfo, Namespace, CanonicalizationMethodTag)
-				if err != nil {
-					return err
-				}
-
-				if c14NMethod == nil {
-					return errors.New("missing CanonicalizationMethod on Signature")
-				}
-
-				c14NAlgorithm := c14NMethod.SelectAttrValue(AlgorithmAttr, "")
-
-				var canonicalSignedInfo *etree.Element
-
-				switch alg := AlgorithmID(c14NAlgorithm); alg {
-				case CanonicalXML10ExclusiveAlgorithmID, CanonicalXML10ExclusiveWithCommentsAlgorithmID:
-					detachedSignedInfo := signedInfo.Copy()
-					err := etreeutils.TransformExcC14nWithContext(ctx, detachedSignedInfo, "", alg == CanonicalXML10ExclusiveWithCommentsAlgorithmID)
-					if err != nil {
-						return err
-					}
-
-					// NOTE: TransformExcC14n transforms the element in-place,
-					// while canonicalPrep isn't meant to. Once we standardize
-					// this behavior we can drop this, as well as the adding and
-					// removing of elements below.
-					canonicalSignedInfo = detachedSignedInfo
-
-				case CanonicalXML11AlgorithmID, CanonicalXML11WithCommentsAlgorithmID:
-					detachedSignedInfo, err := etreeutils.NSDetatch(ctx, signedInfo)
-					if err != nil {
-						return err
-					}
-					canonicalSignedInfo = canonicalPrep(detachedSignedInfo, true, alg == CanonicalXML11WithCommentsAlgorithmID)
-
-				case CanonicalXML10AlgorithmID, CanonicalXML10WithCommentsAlgorithmID:
-					canonicalSignedInfo = canonicalPrep(signedInfo, true, alg == CanonicalXML10WithCommentsAlgorithmID)
-
-				default:
-					return fmt.Errorf("invalid CanonicalizationMethod on Signature: %s", c14NAlgorithm)
-				}
-
-				signatureEl.InsertChildAt(signedInfo.Index(), canonicalSignedInfo)
-				signatureEl.RemoveChild(signedInfo)
-
-				found = true
-
-				return etreeutils.ErrTraversalHalted
-			})
-		if err != nil {
-			return err
-		}
-
-		if !found {
-			return errors.New("missing SignedInfo")
-		}
-
-		// Unmarshal the signature into a structured Signature type
-		_sig := &Signature{}
-		err = etreeutils.NSUnmarshalElement(ctx, signatureEl, _sig)
+		_sig, refsRoot, err := prepareSignature(ctx, signatureEl, idAttr)
 		if err != nil {
 			return err
 		}
 
 		lsig = _sig
 
-		// Traverse references in the signature to determine whether it has at least
-		// one reference to the top level element. If so, conclude the search.
-		for _, ref := range _sig.SignedInfo.References {
-			idVal, isRoot, ok := referenceIDAttr(ref.URI)
-			if !ok {
-				continue
-			}
-			if isRoot || idVal == idAttr {
-				sig = _sig
-				return etreeutils.ErrTraversalHalted
-			}
+		// Conclude the search as soon as a signature referencing the top
+		// level element is found.
+		if refsRoot {
+			sig = _sig
+			return etreeutils.ErrTraversalHalted
 		}
 
 		return nil
@@ -715,6 +750,77 @@ func (ctx *ValidationContext) Validate(el *etree.Element) ([]*etree.Element, err
 	}
 
 	return ctx.validateSignature(el, sig, cert)
+}
+
+// ValidateSignature is Validate for callers that have already located the
+// enveloped Signature element themselves: the signature search — and its
+// traversal budget — is skipped entirely.
+//
+// sig must be a ds:Signature element inside root's tree. Like Validate, the
+// passed elements are never mutated: root is defensively copied and sig is
+// resolved inside the copy by its position. All other behaviour is identical
+// to Validate — the signature must carry a reference to the top-level element
+// (or the document must be id-less, mirroring the search's fallback), the
+// KeyInfo certificate is checked against the CertificateStore, and every
+// SignedInfo reference digest is verified.
+func (ctx *ValidationContext) ValidateSignature(root, sig *etree.Element) ([]*etree.Element, error) {
+	if root == nil || sig == nil {
+		return nil, errors.New("nil element")
+	}
+	if sig == root {
+		return nil, errors.New("signature element must not be the document root")
+	}
+
+	path := mapPathToElement(root, sig)
+	if path == nil {
+		return nil, ErrMissingSignature
+	}
+
+	// Make a copy of the element to avoid mutating the one we were passed,
+	// and resolve the signature element inside the copy by its position.
+	rootCopy := root.Copy()
+	sigCopy := elementAtPath(rootCopy, path)
+	if sigCopy == nil {
+		return nil, ErrMissingSignature
+	}
+
+	// Assert that the caller-given element actually is a ds:Signature: the
+	// caller chooses which signature to validate, never whether the rules
+	// apply.
+	parentCtx, err := etreeutils.NSBuildParentContext(sigCopy)
+	if err != nil {
+		return nil, err
+	}
+	ownCtx, err := parentCtx.SubContext(sigCopy)
+	if err != nil {
+		return nil, err
+	}
+	ns, err := ownCtx.LookupPrefix(sigCopy.Space)
+	if err != nil {
+		return nil, err
+	}
+	if ns != Namespace || sigCopy.Tag != SignatureTag {
+		return nil, ErrMissingSignature
+	}
+
+	// Same acceptance rule as the search: the signature must reference the
+	// top-level element, except for an id-less root where any caller-given
+	// signature is accepted (the search's last-signature fallback).
+	idAttr := rootCopy.SelectAttrValue(ctx.IDAttribute, "")
+	signature, refsRoot, err := prepareSignature(ownCtx, sigCopy, idAttr)
+	if err != nil {
+		return nil, err
+	}
+	if !refsRoot && idAttr != "" {
+		return nil, ErrMissingSignature
+	}
+
+	cert, err := ctx.verifyCertificate(signature, true, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return ctx.validateSignature(rootCopy, signature, cert)
 }
 
 // ValidateWithRootTrust does the same as Verify except it actually verifies the root CA is trusted as well
