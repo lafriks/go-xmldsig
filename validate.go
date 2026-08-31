@@ -6,6 +6,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -17,6 +19,29 @@ import (
 
 	"github.com/beevik/etree"
 )
+
+// oidPublicKeyRSAPSS is the id-RSASSA-PSS algorithm identifier (RFC 4055
+// §6). A certificate may carry it in the SubjectPublicKeyInfo instead of
+// rsaEncryption; Go's x509 then leaves PublicKey nil even though the key
+// material is a plain RSAPublicKey.
+var oidPublicKeyRSAPSS = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10}
+
+// rsaPublicKeyFromPSSSPKI extracts the RSA public key from a raw
+// SubjectPublicKeyInfo that names id-RSASSA-PSS (e.g. the German trusted
+// list's signer certificates carry one).
+func rsaPublicKeyFromPSSSPKI(rawSPKI []byte) (*rsa.PublicKey, error) {
+	var s struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(rawSPKI, &s); err != nil {
+		return nil, err
+	}
+	if !s.Algorithm.Algorithm.Equal(oidPublicKeyRSAPSS) {
+		return nil, errors.New("subject public key is not RSA or RSASSA-PSS")
+	}
+	return x509.ParsePKCS1PublicKey(s.PublicKey.RightAlign())
+}
 
 var whiteSpace = regexp.MustCompile(`\s+`)
 
@@ -277,10 +302,15 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	}
 
 	// Verify the signature against the canonical bytes.
-	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod {
+	fixedPSSHash, isFixedPSS := fixedPSSSignatureMethods[signedInfo.SignatureMethod.Algorithm]
+	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod || isFixedPSS {
 		// RSA-PSS: parse hash from RSAPSSParams (default SHA-256 per RFC 6931).
 		hashAlgo := digestAlgorithmsByIdentifier[digestAlgorithmIdentifiers[crypto.SHA256]]
-		if signedInfo.SignatureMethod.RSAPSSParams != nil {
+		if isFixedPSS {
+			// Fixed-parameter method (RFC 6931 §2.3.6–2.3.10): the hash is
+			// implied by the URI and no RSAPSSParams element is present.
+			hashAlgo = fixedPSSHash
+		} else if signedInfo.SignatureMethod.RSAPSSParams != nil {
 			if h, ok := digestAlgorithmsByIdentifier[signedInfo.SignatureMethod.RSAPSSParams.DigestMethod.Algorithm]; ok {
 				hashAlgo = h
 			}
@@ -288,7 +318,13 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 
 		rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
 		if !ok {
-			return nil, errors.New("RSA-PSS signature requires an RSA public key")
+			// The certificate may carry the key under the id-RSASSA-PSS
+			// SubjectPublicKeyInfo algorithm, which Go's x509 leaves unparsed.
+			var perr error
+			rsaPub, perr = rsaPublicKeyFromPSSSPKI(cert.RawSubjectPublicKeyInfo)
+			if perr != nil {
+				return nil, errors.New("RSA-PSS signature requires an RSA public key")
+			}
 		}
 
 		h := hashAlgo.New()

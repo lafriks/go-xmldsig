@@ -81,6 +81,21 @@ type signatureMethodInfo struct {
 	Hash               crypto.Hash
 }
 
+// fixedPSSSignatureMethods are the RFC 6931 fixed-parameter RSASSA-PSS
+// signature method identifiers (§2.3.6–2.3.10): the hash is implied by the
+// URI, the mask generation function is MGF1 with that same hash, the salt
+// length equals the hash length and the trailer field is 0xBC — no
+// RSAPSSParams element is present. Several EU trusted lists (Germany's, for
+// one) sign with sha256-rsa-MGF1. Validation-only: signing continues to emit
+// the parameterized rsa-pss method.
+var fixedPSSSignatureMethods = map[string]crypto.Hash{
+	"http://www.w3.org/2007/05/xmldsig-more#sha1-rsa-MGF1":   crypto.SHA1,
+	"http://www.w3.org/2007/05/xmldsig-more#sha224-rsa-MGF1": crypto.SHA224,
+	"http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1": crypto.SHA256,
+	"http://www.w3.org/2007/05/xmldsig-more#sha384-rsa-MGF1": crypto.SHA384,
+	"http://www.w3.org/2007/05/xmldsig-more#sha512-rsa-MGF1": crypto.SHA512,
+}
+
 var digestAlgorithmIdentifiers = map[crypto.Hash]string{
 	crypto.SHA1:   "http://www.w3.org/2000/09/xmldsig#sha1",
 	crypto.SHA256: "http://www.w3.org/2001/04/xmlenc#sha256",
