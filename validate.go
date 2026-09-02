@@ -297,8 +297,14 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		h.Write(canonicalBytes)
 		hashed := h.Sum(nil)
 
+		// Enforce the salt length the signature declares in RSAPSSParams
+		saltLength := rsa.PSSSaltLengthAuto
+		if signedInfo.SignatureMethod.RSAPSSParams != nil && signedInfo.SignatureMethod.RSAPSSParams.SaltLength > 0 {
+			saltLength = signedInfo.SignatureMethod.RSAPSSParams.SaltLength
+		}
+
 		if err := rsa.VerifyPSS(rsaPub, hashAlgo, hashed, decodedSignature, &rsa.PSSOptions{
-			SaltLength: rsa.PSSSaltLengthAuto,
+			SaltLength: saltLength,
 		}); err != nil {
 			return nil, err
 		}
