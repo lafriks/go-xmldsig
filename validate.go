@@ -282,13 +282,31 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod {
 		// RSA-PSS: parse hash from RSAPSSParams (default SHA-256 per RFC 6931).
 		hashAlgo := crypto.SHA256
-		if signedInfo.SignatureMethod.RSAPSSParams != nil {
-			if digestURI := signedInfo.SignatureMethod.RSAPSSParams.DigestMethod.Algorithm; digestURI != "" {
+		if params := signedInfo.SignatureMethod.RSAPSSParams; params != nil {
+			if digestURI := params.DigestMethod.Algorithm; digestURI != "" {
 				h, ok := digestAlgorithmsByIdentifier[digestURI]
 				if !ok {
 					return nil, errors.New("unknown digest algorithm: " + digestURI)
 				}
 				hashAlgo = h
+			}
+
+			// Check for supported MGF parameters
+			mgf := params.MaskGenerationFunction
+			if mgf.Algorithm != "" && mgf.Algorithm != RSAPSS_MGF1URI {
+				return nil, errors.New("unsupported mask generation function: " + mgf.Algorithm)
+			}
+			if mgfURI := mgf.DigestMethod.Algorithm; mgfURI != "" {
+				mgfHash, ok := digestAlgorithmsByIdentifier[mgfURI]
+				if !ok {
+					return nil, errors.New("unknown digest algorithm: " + mgfURI)
+				}
+				if mgfHash != hashAlgo {
+					return nil, errors.New("unsupported RSA-PSS parameters: mask generation function hash must match the digest hash")
+				}
+			}
+			if params.TrailerField != 0 && params.TrailerField != 1 {
+				return nil, errors.New("unsupported RSA-PSS trailer field")
 			}
 		}
 
