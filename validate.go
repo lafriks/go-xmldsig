@@ -281,9 +281,13 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	// Verify the signature against the canonical bytes.
 	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod {
 		// RSA-PSS: parse hash from RSAPSSParams (default SHA-256 per RFC 6931).
-		hashAlgo := digestAlgorithmsByIdentifier[digestAlgorithmIdentifiers[crypto.SHA256]]
+		hashAlgo := crypto.SHA256
 		if signedInfo.SignatureMethod.RSAPSSParams != nil {
-			if h, ok := digestAlgorithmsByIdentifier[signedInfo.SignatureMethod.RSAPSSParams.DigestMethod.Algorithm]; ok {
+			if digestURI := signedInfo.SignatureMethod.RSAPSSParams.DigestMethod.Algorithm; digestURI != "" {
+				h, ok := digestAlgorithmsByIdentifier[digestURI]
+				if !ok {
+					return nil, errors.New("unknown digest algorithm: " + digestURI)
+				}
 				hashAlgo = h
 			}
 		}
