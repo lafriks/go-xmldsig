@@ -279,10 +279,19 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 	}
 
 	// Verify the signature against the canonical bytes.
-	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod {
-		// RSA-PSS: parse hash from RSAPSSParams (default SHA-256 per RFC 6931).
+	fixedHash, isFixedPSS := fixedPSSSignatureMethods[signedInfo.SignatureMethod.Algorithm]
+	if signedInfo.SignatureMethod.Algorithm == RSAPSSSignatureMethod || isFixedPSS {
+		// RSA-PSS: default to SHA-256 with auto-detected salt length per RFC 6931.
 		hashAlgo := crypto.SHA256
-		if params := signedInfo.SignatureMethod.RSAPSSParams; params != nil {
+		saltLength := rsa.PSSSaltLengthAuto
+
+		if isFixedPSS {
+			// Fixed-parameter method (RFC 6931 §2.3.6–2.3.10): the hash is
+			// implied by the URI, MGF1 uses that same hash, the salt length
+			// equals the hash length and no RSAPSSParams element is present.
+			hashAlgo = fixedHash
+			saltLength = rsa.PSSSaltLengthEqualsHash
+		} else if params := signedInfo.SignatureMethod.RSAPSSParams; params != nil {
 			if digestURI := params.DigestMethod.Algorithm; digestURI != "" {
 				h, ok := digestAlgorithmsByIdentifier[digestURI]
 				if !ok {
@@ -308,6 +317,11 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 			if params.TrailerField != 0 && params.TrailerField != 1 {
 				return nil, errors.New("unsupported RSA-PSS trailer field")
 			}
+
+			// Enforce the salt length the signature declares in RSAPSSParams
+			if params.SaltLength > 0 {
+				saltLength = params.SaltLength
+			}
 		}
 
 		rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
@@ -318,12 +332,6 @@ func (ctx *ValidationContext) validateSignature(el *etree.Element, sig *Signatur
 		h := hashAlgo.New()
 		h.Write(canonicalBytes)
 		hashed := h.Sum(nil)
-
-		// Enforce the salt length the signature declares in RSAPSSParams
-		saltLength := rsa.PSSSaltLengthAuto
-		if signedInfo.SignatureMethod.RSAPSSParams != nil && signedInfo.SignatureMethod.RSAPSSParams.SaltLength > 0 {
-			saltLength = signedInfo.SignatureMethod.RSAPSSParams.SaltLength
-		}
 
 		if err := rsa.VerifyPSS(rsaPub, hashAlgo, hashed, decodedSignature, &rsa.PSSOptions{
 			SaltLength: saltLength,

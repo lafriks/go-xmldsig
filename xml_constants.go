@@ -45,11 +45,16 @@ func (id AlgorithmID) String() string {
 }
 
 const (
-	RSASHA1SignatureMethod      = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
-	RSASHA256SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
-	RSASHA384SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
-	RSASHA512SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
-	RSAPSSSignatureMethod       = "http://www.w3.org/2007/05/xmldsig-more#rsa-pss"
+	RSASHA1SignatureMethod   = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
+	RSASHA256SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+	RSASHA384SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
+	RSASHA512SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
+	RSAPSSSignatureMethod    = "http://www.w3.org/2007/05/xmldsig-more#rsa-pss"
+
+	RSAPSSSHA256MGF1SignatureMethod = "http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1"
+	RSAPSSSHA384MGF1SignatureMethod = "http://www.w3.org/2007/05/xmldsig-more#sha384-rsa-MGF1"
+	RSAPSSSHA512MGF1SignatureMethod = "http://www.w3.org/2007/05/xmldsig-more#sha512-rsa-MGF1"
+
 	ECDSASHA1SignatureMethod    = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha1"
 	ECDSASHA256SignatureMethod  = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"
 	ECDSASHA384SignatureMethod  = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384"
@@ -87,6 +92,12 @@ var digestAlgorithmIdentifiers = map[crypto.Hash]string{
 	crypto.SHA256: "http://www.w3.org/2001/04/xmlenc#sha256",
 	crypto.SHA384: "http://www.w3.org/2001/04/xmldsig-more#sha384",
 	crypto.SHA512: "http://www.w3.org/2001/04/xmlenc#sha512",
+}
+
+var fixedPSSSignatureMethods = map[string]crypto.Hash{
+	RSAPSSSHA256MGF1SignatureMethod: crypto.SHA256,
+	RSAPSSSHA384MGF1SignatureMethod: crypto.SHA384,
+	RSAPSSSHA512MGF1SignatureMethod: crypto.SHA512,
 }
 
 var (
