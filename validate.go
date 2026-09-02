@@ -6,6 +6,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -630,6 +632,33 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*Signature, er
 	return sig, nil
 }
 
+// oidPublicKeyRSAPSS is the id-RSASSA-PSS algorithm identifier (RFC 4055 §6).
+// A certificate may carry it in the SubjectPublicKeyInfo instead of
+// rsaEncryption.
+var oidPublicKeyRSAPSS = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10}
+
+// normalizeCert fills in PublicKey for certificates whose SubjectPublicKeyInfo
+// names id-RSASSA-PSS.
+func normalizeCert(cert *x509.Certificate) {
+	if cert == nil || cert.PublicKey != nil {
+		return
+	}
+	var spki struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(cert.RawSubjectPublicKeyInfo, &spki); err != nil {
+		return
+	}
+	if !spki.Algorithm.Algorithm.Equal(oidPublicKeyRSAPSS) {
+		return
+	}
+	if pub, err := x509.ParsePKCS1PublicKey(spki.PublicKey.RightAlign()); err == nil {
+		cert.PublicKey = pub
+		cert.PublicKeyAlgorithm = x509.RSA
+	}
+}
+
 // keyInfoIntermediates builds a certificate pool from any certificates the
 // signature carries in KeyInfo beyond the first (leaf) one, so a signature
 // that ships its own chain can be verified against a store holding only the
@@ -649,6 +678,7 @@ func keyInfoIntermediates(sig *Signature) (*x509.CertPool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse intermediate certificate: %w", err)
 		}
+		normalizeCert(cert)
 		pool.AddCert(cert)
 	}
 	return pool, nil
@@ -664,6 +694,9 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 		roots, err = ctx.CertificateStore.Certificates()
 		if err != nil {
 			return nil, err
+		}
+		for _, root := range roots {
+			normalizeCert(root)
 		}
 	}
 
@@ -682,11 +715,13 @@ func (ctx *ValidationContext) verifyCertificate(sig *Signature, check, verify bo
 			if err != nil {
 				return nil, err
 			}
+			normalizeCert(cert)
 		} else if ctx.CertificateResolver != nil {
 			cert, err = ctx.CertificateResolver(sig.UnderlyingElement())
 			if err != nil {
 				return nil, err
 			}
+			normalizeCert(cert)
 		}
 	} else if len(roots) == 1 {
 		// If the Signature doesn't have KeyInfo, Use the root certificate if there is only one
